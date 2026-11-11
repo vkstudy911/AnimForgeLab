@@ -216,7 +216,7 @@ test('All three adapters accept caller projectId, jail paths in space-trailing w
     assert.equal(dollarSceneId, 'scene_dollar');
 
     const gmHtml = await fs.readFile(
-      path.join(workspaceTrailing, 'projects', 'proj_gm_01', 'project.html'),
+      path.join(workspaceTrailing, 'projects', 'proj_gm_01', 'index.html'),
       'utf-8'
     );
     assert.ok(gmHtml.includes('Pip &lt;Test&gt; {Title}'));

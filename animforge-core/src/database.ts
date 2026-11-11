@@ -1,16 +1,22 @@
-// @ts-ignore
+// @ts-expect-error node:sqlite built-in module is missing from @types/node 20.x
 import { DatabaseSync } from 'node:sqlite';
 import * as path from 'node:path';
 import * as fs from 'node:fs';
-import { Project, RenderJob } from '../schemas/index.js';
+import {
+  Project,
+  ProjectSchema,
+  RenderJob,
+  RenderJobSchema,
+} from '../schemas/index.js';
 
-// Type shim for built-in node:sqlite in Node >=22
+type SqlParam = string | number | null;
+
 type SqliteDatabase = {
   exec(sql: string): void;
   prepare(sql: string): {
-    run(...args: any[]): void;
-    get(...args: any[]): any;
-    all(...args: any[]): any[];
+    run(...args: SqlParam[]): void;
+    get(...args: SqlParam[]): Record<string, unknown> | undefined;
+    all(...args: SqlParam[]): Record<string, unknown>[];
   };
   close(): void;
 };
@@ -26,7 +32,7 @@ export class AnimForgeDatabase {
         fs.mkdirSync(dir, { recursive: true });
       }
     }
-    this.db = new DatabaseSync(resolvedPath);
+    this.db = new DatabaseSync(resolvedPath) as SqliteDatabase;
     this.initSchema();
   }
 
@@ -56,6 +62,7 @@ export class AnimForgeDatabase {
   }
 
   saveProject(project: Project): void {
+    const valid = ProjectSchema.parse(project);
     const stmt = this.db.prepare(`
       INSERT INTO projects (id, name, prompt, data, created_at, updated_at)
       VALUES (?, ?, ?, ?, ?, ?)
@@ -66,23 +73,24 @@ export class AnimForgeDatabase {
         updated_at = excluded.updated_at
     `);
     stmt.run(
-      project.id,
-      project.name,
-      project.prompt,
-      JSON.stringify(project),
-      project.createdAt,
-      project.updatedAt
+      valid.id,
+      valid.name,
+      valid.prompt,
+      JSON.stringify(valid),
+      valid.createdAt,
+      valid.updatedAt
     );
   }
 
   getProject(id: string): Project | null {
     const stmt = this.db.prepare('SELECT data FROM projects WHERE id = ?');
-    const row = stmt.get(id) as { data: string } | undefined;
-    if (!row) return null;
-    return JSON.parse(row.data) as Project;
+    const row = stmt.get(id);
+    if (!row || typeof row.data !== 'string') return null;
+    return ProjectSchema.parse(JSON.parse(row.data));
   }
 
   saveRenderJob(job: RenderJob): void {
+    const valid = RenderJobSchema.parse(job);
     const stmt = this.db.prepare(`
       INSERT INTO render_jobs (id, project_id, engine, status, progress, output_path, error, started_at, finished_at)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
@@ -94,33 +102,33 @@ export class AnimForgeDatabase {
         finished_at = excluded.finished_at
     `);
     stmt.run(
-      job.id,
-      job.projectId,
-      job.engine,
-      job.status,
-      job.progress,
-      job.outputFilePath || null,
-      job.error || null,
-      job.startedAt,
-      job.finishedAt || null
+      valid.id,
+      valid.projectId,
+      valid.engine,
+      valid.status,
+      valid.progress,
+      valid.outputFilePath ?? null,
+      valid.error ?? null,
+      valid.startedAt,
+      valid.finishedAt ?? null
     );
   }
 
   getRenderJob(id: string): RenderJob | null {
     const stmt = this.db.prepare('SELECT * FROM render_jobs WHERE id = ?');
-    const row = stmt.get(id) as any;
+    const row = stmt.get(id);
     if (!row) return null;
-    return {
+    return RenderJobSchema.parse({
       id: row.id,
       projectId: row.project_id,
       engine: row.engine,
       status: row.status,
       progress: row.progress,
-      outputFilePath: row.output_path || undefined,
-      error: row.error || undefined,
+      outputFilePath: row.output_path ?? undefined,
+      error: row.error ?? undefined,
       startedAt: row.started_at,
-      finishedAt: row.finished_at || undefined,
-    };
+      finishedAt: row.finished_at ?? undefined,
+    });
   }
 
   close(): void {

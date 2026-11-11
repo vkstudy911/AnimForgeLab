@@ -4,9 +4,22 @@ import { CharacterManagerAgent } from '../agents/characterManager.js';
 import { ScenePlannerAgent } from '../agents/scenePlanner.js';
 import { AnimationEngineAdapter } from '../adapters/adapter.interface.js';
 import { AnimForgeDatabase } from './database.js';
+import { assertSafeId } from '../utils/paths.js';
 
 export interface PipelineProgressCallback {
-  (stage: string, message: string, data?: any): void;
+  (stage: string, message: string, data?: unknown): void;
+}
+
+export interface PipelineExecutionOptions {
+  projectId?: string;
+  pollIntervalMs?: number;
+}
+
+let projectSeq = 0;
+
+export function createCanonicalProjectId(): string {
+  projectSeq = (projectSeq + 1) % 10000;
+  return `proj_${Date.now()}_${projectSeq}`;
 }
 
 export class AnimForgePipeline {
@@ -25,18 +38,23 @@ export class AnimForgePipeline {
   async execute(
     config: ProjectConfig,
     adapter: AnimationEngineAdapter,
-    onProgress?: PipelineProgressCallback
+    onProgress?: PipelineProgressCallback,
+    options?: PipelineExecutionOptions
   ): Promise<{ project: Project; renderJob: RenderJob; videoPath: string }> {
-    const notify = (stage: string, message: string, data?: any) => {
+    const notify = (stage: string, message: string, data?: unknown) => {
       if (onProgress) onProgress(stage, message, data);
     };
+
+    const projectId = options?.projectId !== undefined
+      ? assertSafeId(options.projectId, 'project')
+      : createCanonicalProjectId();
+    const pollIntervalMs = options?.pollIntervalMs ?? 1000;
 
     // Stage 1: Initialize Engine Adapter
     notify('INIT_ENGINE', `Initializing engine adapter: ${adapter.name}`);
     await adapter.initialize();
 
     // Stage 2: Human Idea -> AI Story Director
-    const projectId = `proj_${Date.now()}`;
     notify('STORY_DIRECTOR', `Converting prompt to storyboard: "${config.prompt}"`);
     const storyboard = await this.storyDirector.createStoryboard(projectId, config.prompt);
 
@@ -73,29 +91,53 @@ export class AnimForgePipeline {
 
     // Stage 6: Engine Project & Scene Instantiation
     notify('ADAPTER_SCENES', `Instantiating project and ${scenes.length} scenes in ${adapter.name}`);
-    await adapter.createProject(config);
+    const adapterProjectId = await adapter.createProject(projectId, config, [character]);
+    if (adapterProjectId !== projectId) {
+      throw new Error(
+        `Adapter ${adapter.name} violated projectId contract: expected ${projectId}, got ${adapterProjectId}`
+      );
+    }
     for (const scene of scenes) {
       await adapter.createScene(scene);
     }
 
     // Stage 7: Quality Checker & Preview
     notify('QUALITY_CHECK', 'Verifying scene layouts, motion boundaries and visual pacing');
-    await adapter.preview(scenes[0].id);
+    if (scenes.length > 0) {
+      await adapter.preview(scenes[0].id);
+    }
 
     // Stage 8: Video Render Execution
     notify('RENDER_ENGINE', `Rendering project frames to MP4 via ${adapter.name}...`);
-    const renderJob = await adapter.render(projectId);
+    const renderJob = await adapter.render(projectId, (info) => {
+      notify('RENDER_PROGRESS', `Render ${info.phase}: ${info.progress}%`, info);
+    });
+    if (renderJob.projectId !== projectId) {
+      throw new Error(
+        `Adapter ${adapter.name} violated renderJob projectId contract: expected ${projectId}, got ${renderJob.projectId}`
+      );
+    }
     this.db.saveRenderJob(renderJob);
 
     // Poll until complete
     let status = await adapter.getRenderStatus(renderJob.id);
     let attempts = 0;
+    const maxAttempts = pollIntervalMs > 0 ? Math.max(60, Math.ceil(60000 / pollIntervalMs)) : 60;
     while (status.status === 'rendering' || status.status === 'queued') {
       attempts++;
-      if (attempts > 60) break;
-      await new Promise((resolve) => setTimeout(resolve, 1000));
+      if (attempts > maxAttempts) {
+        throw new Error(`Rendering timed out for job ${renderJob.id}`);
+      }
+      await new Promise((resolve) => setTimeout(resolve, pollIntervalMs));
       status = await adapter.getRenderStatus(renderJob.id);
     }
+
+    renderJob.status = status.status;
+    renderJob.progress = status.progress;
+    renderJob.outputFilePath = status.outputFilePath ?? renderJob.outputFilePath;
+    renderJob.error = status.error;
+    renderJob.finishedAt = renderJob.finishedAt ?? new Date().toISOString();
+    this.db.saveRenderJob(renderJob);
 
     if (status.status === 'failed') {
       throw new Error(`Rendering failed: ${status.error || 'Unknown engine error'}`);

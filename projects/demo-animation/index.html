@@ -1,0 +1,499 @@
+<!doctype html>
+<html data-width="1280" data-height="720" data-fps="30">
+<head>
+<meta charset="utf-8">
+<title>AnimForge AI — Pip's Glowing Door Adventure</title>
+<style>
+  :root {
+    --bg-dark: #0a0e17;
+    --green-main: #22c55e;
+    --green-dark: #15803d;
+    --green-light: #86efac;
+    --belly-color: #bbf7d0;
+    --door-gold: #fde047;
+    --door-cyan: #38bdf8;
+  }
+
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    padding: 0;
+    width: 1280px;
+    height: 720px;
+    background: var(--bg-dark);
+    font-family: Inter, system-ui, sans-serif;
+    overflow: hidden;
+    color: #fff;
+  }
+
+  .scene {
+    position: absolute;
+    inset: 0;
+    width: 1280px;
+    height: 720px;
+    overflow: hidden;
+  }
+
+  /* Room Environment */
+  .room-bg {
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(180deg, #111827 0%, #1f2937 70%, #0f172a 100%);
+  }
+  .room-wall {
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    height: 500px;
+    background: radial-gradient(circle at 50% 30%, #1e293b 0%, #0f172a 80%);
+    border-bottom: 8px solid #334155;
+  }
+  .room-floor {
+    position: absolute;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    height: 220px;
+    background: linear-gradient(180deg, #1e1b18 0%, #0d0b09 100%);
+    box-shadow: inset 0 10px 30px rgba(0,0,0,0.8);
+  }
+  .floor-planks {
+    position: absolute;
+    inset: 0;
+    background: repeating-linear-gradient(90deg, transparent, transparent 120px, rgba(255,255,255,0.02) 120px, rgba(255,255,255,0.02) 122px);
+  }
+
+  /* Soft Light Shaft */
+  .light-beam {
+    position: absolute;
+    top: -50px;
+    left: 450px;
+    width: 380px;
+    height: 750px;
+    background: linear-gradient(180deg, rgba(254, 240, 138, 0.15) 0%, rgba(254, 240, 138, 0.02) 80%, transparent 100%);
+    transform: rotate(-10deg);
+    pointer-events: none;
+    filter: blur(20px);
+  }
+
+  /* Character Root */
+  .character {
+    position: absolute;
+    width: 160px;
+    height: 220px;
+    z-index: 100;
+  }
+
+  /* Character Shadow */
+  .char-shadow {
+    position: absolute;
+    bottom: -15px;
+    left: 20px;
+    width: 120px;
+    height: 24px;
+    background: rgba(0,0,0,0.5);
+    border-radius: 50%;
+    filter: blur(6px);
+    transform-origin: center;
+  }
+
+  /* SVG Character Parts */
+  .pip-svg {
+    width: 100%;
+    height: 100%;
+    overflow: visible;
+  }
+
+  /* PIVOT DEFINITIONS */
+  #arm-right-group {
+    transform-origin: 120px 115px;
+  }
+  #arm-left-group {
+    transform-origin: 40px 115px;
+  }
+  #leg-left-group {
+    transform-origin: 60px 180px;
+  }
+  #leg-right-group {
+    transform-origin: 100px 180px;
+  }
+  #head-group {
+    transform-origin: 80px 105px;
+  }
+  #antenna-group {
+    transform-origin: 80px 30px;
+  }
+
+  /* ANIMATIONS - SCENE 1 */
+  .char-enter-walk {
+    animation: walkIn 3.2s cubic-bezier(0.2, 0.8, 0.3, 1) forwards;
+  }
+  @keyframes walkIn {
+    0% { left: 50px; bottom: 120px; }
+    100% { left: 560px; bottom: 120px; }
+  }
+
+  .bob-stride {
+    animation: bodyBob 0.4s ease-in-out infinite alternate;
+  }
+  @keyframes bodyBob {
+    0% { transform: translateY(0); }
+    100% { transform: translateY(-8px); }
+  }
+
+  .leg-stride-l {
+    animation: legSwingL 0.4s ease-in-out infinite alternate;
+  }
+  @keyframes legSwingL {
+    0% { transform: rotate(-25deg); }
+    100% { transform: rotate(25deg); }
+  }
+  .leg-stride-r {
+    animation: legSwingR 0.4s ease-in-out infinite alternate;
+  }
+  @keyframes legSwingR {
+    0% { transform: rotate(25deg); }
+    100% { transform: rotate(-25deg); }
+  }
+
+  .head-look-around {
+    animation: headLook 4.0s ease-in-out infinite;
+  }
+  @keyframes headLook {
+    0%, 20% { transform: rotate(0deg); }
+    35%, 50% { transform: rotate(-14deg) translateY(2px); }
+    65%, 80% { transform: rotate(14deg) translateY(2px); }
+    95%, 100% { transform: rotate(0deg); }
+  }
+
+  /* NATURAL EYE BLINK */
+  .eyelid-blink {
+    animation: eyeBlink 3.2s infinite ease-in-out;
+  }
+  @keyframes eyeBlink {
+    0%, 92%, 100% { transform: scaleY(1); }
+    96% { transform: scaleY(0.05); }
+  }
+
+  /* SCENE 2: WAVE & SMILE */
+  .char-scene-2 {
+    left: 560px;
+    bottom: 120px;
+  }
+  .arm-wave {
+    animation: waveHand 1.0s ease-in-out infinite alternate;
+  }
+  @keyframes waveHand {
+    0% { transform: rotate(-15deg); }
+    100% { transform: rotate(-85deg); }
+  }
+
+  .antenna-wiggle {
+    animation: antennaWiggle 1.4s ease-in-out infinite alternate;
+  }
+  @keyframes antennaWiggle {
+    0% { transform: rotate(-8deg); }
+    100% { transform: rotate(12deg); }
+  }
+
+  /* SCENE 3: GLOWING DOOR */
+  .glowing-portal-door {
+    position: absolute;
+    top: 140px;
+    left: 540px;
+    width: 200px;
+    height: 380px;
+    border-radius: 100px 100px 4px 4px;
+    background: radial-gradient(circle at 50% 50%, #ffffff 0%, #fef08a 35%, #38bdf8 70%, #0369a1 100%);
+    box-shadow:
+      0 0 50px rgba(56, 189, 248, 0.8),
+      0 0 100px rgba(254, 240, 138, 0.6),
+      0 0 180px rgba(56, 189, 248, 0.4);
+    animation: portalPulse 2.5s ease-in-out infinite alternate;
+    z-index: 50;
+  }
+  @keyframes portalPulse {
+    0% { transform: scale(0.98); filter: brightness(1); }
+    100% { transform: scale(1.02); filter: brightness(1.35) drop-shadow(0 0 40px #fef08a); }
+  }
+
+  .portal-arch {
+    position: absolute;
+    top: 120px;
+    left: 510px;
+    width: 260px;
+    height: 410px;
+    border-radius: 130px 130px 0 0;
+    border: 16px solid #475569;
+    border-bottom: none;
+    z-index: 55;
+    box-shadow: 0 0 30px rgba(0,0,0,0.8);
+  }
+
+  .portal-rays {
+    position: absolute;
+    top: 100px;
+    left: 440px;
+    width: 400px;
+    height: 500px;
+    background: radial-gradient(circle at 50% 60%, rgba(254, 240, 138, 0.3) 0%, transparent 70%);
+    filter: blur(30px);
+    z-index: 60;
+    pointer-events: none;
+    animation: raysShimmer 3s ease-in-out infinite alternate;
+  }
+  @keyframes raysShimmer {
+    0% { opacity: 0.7; }
+    100% { opacity: 1; transform: scale(1.1); }
+  }
+
+  .char-walk-to-door {
+    animation: walkToDoor 4.5s ease-in forwards;
+  }
+  @keyframes walkToDoor {
+    0% {
+      left: 560px;
+      bottom: 120px;
+      transform: scale(1);
+      opacity: 1;
+    }
+    100% {
+      left: 600px;
+      bottom: 220px;
+      transform: scale(0.45);
+      opacity: 0.15;
+      filter: brightness(2) blur(1px);
+    }
+  }
+
+  /* TITLE CARD & OVERLAYS */
+  .story-title {
+    position: absolute;
+    top: 40px;
+    left: 60px;
+    font-size: 26px;
+    font-weight: 700;
+    letter-spacing: 1px;
+    text-transform: uppercase;
+    color: rgba(255,255,255,0.95);
+    background: rgba(15, 23, 42, 0.75);
+    padding: 10px 20px;
+    border-radius: 8px;
+    border-left: 5px solid var(--green-main);
+    z-index: 200;
+  }
+  .scene-sub {
+    font-size: 18px;
+    font-weight: 500;
+    color: var(--green-light);
+    display: block;
+    margin-top: 4px;
+    letter-spacing: 0.5px;
+  }
+</style>
+</head>
+<body>
+
+  <!-- MASTER TIMELINE SEQUENCE -->
+  <main data-sequence data-transition="wipe-right 0.5">
+
+    <!-- ==================== SCENE 1: ARRIVAL & WONDER (4s) ==================== -->
+    <section class="scene" data-duration="4">
+      <div class="room-bg"></div>
+      <div class="room-wall"></div>
+      <div class="room-floor">
+        <div class="floor-planks"></div>
+      </div>
+      <div class="light-beam"></div>
+
+      <div class="story-title" data-enter="rise">
+        AnimForge AI
+        <span class="scene-sub">Scene 1 — Pip Enters the Chamber</span>
+      </div>
+
+      <!-- Animated Character Pip -->
+      <div class="character char-enter-walk">
+        <div class="char-shadow"></div>
+        <div class="bob-stride">
+          <svg class="pip-svg" viewBox="0 0 160 220">
+            <!-- Left Leg -->
+            <g id="leg-left-group" class="leg-stride-l">
+              <rect x="52" y="175" width="16" height="34" rx="8" fill="#15803d" />
+              <ellipse cx="60" cy="208" rx="14" ry="7" fill="#166534" />
+            </g>
+            <!-- Right Leg -->
+            <g id="leg-right-group" class="leg-stride-r">
+              <rect x="92" y="175" width="16" height="34" rx="8" fill="#15803d" />
+              <ellipse cx="100" cy="208" rx="14" ry="7" fill="#166534" />
+            </g>
+            <!-- Left Arm -->
+            <g id="arm-left-group">
+              <rect x="24" y="115" width="18" height="42" rx="9" fill="#16a34a" transform="rotate(15 33 115)" />
+              <circle cx="28" cy="158" r="10" fill="#22c55e" />
+            </g>
+            <!-- Torso Body -->
+            <g id="torso-group">
+              <ellipse cx="80" cy="145" rx="44" ry="48" fill="#22c55e" />
+              <ellipse cx="80" cy="152" rx="30" ry="34" fill="#bbf7d0" />
+            </g>
+            <!-- Right Arm -->
+            <g id="arm-right-group">
+              <rect x="118" y="115" width="18" height="42" rx="9" fill="#22c55e" transform="rotate(-15 127 115)" />
+              <circle cx="132" cy="158" r="10" fill="#4ade80" />
+            </g>
+            <!-- Head with Pivot -->
+            <g id="head-group" class="head-look-around">
+              <g id="antenna-group" class="antenna-wiggle">
+                <path d="M 80 35 Q 80 15 95 10" stroke="#15803d" stroke-width="5" fill="none" stroke-linecap="round" />
+                <circle cx="97" cy="9" r="8" fill="#fde047" filter="drop-shadow(0 0 6px #fde047)" />
+              </g>
+              <ellipse cx="80" cy="70" rx="48" ry="42" fill="#22c55e" />
+              <ellipse cx="46" cy="85" rx="8" ry="5" fill="#f472b6" opacity="0.6" />
+              <ellipse cx="114" cy="85" rx="8" ry="5" fill="#f472b6" opacity="0.6" />
+              <g id="eye-left" class="eyelid-blink" style="transform-origin: 62px 68px;">
+                <circle cx="62" cy="68" r="13" fill="#ffffff" />
+                <circle cx="64" cy="68" r="8" fill="#0f172a" />
+                <circle cx="67" cy="65" r="3.5" fill="#ffffff" />
+              </g>
+              <g id="eye-right" class="eyelid-blink" style="transform-origin: 98px 68px;">
+                <circle cx="98" cy="68" r="13" fill="#ffffff" />
+                <circle cx="96" cy="68" r="8" fill="#0f172a" />
+                <circle cx="99" cy="65" r="3.5" fill="#ffffff" />
+              </g>
+              <ellipse cx="80" cy="92" rx="6" ry="6" fill="#14532d" />
+            </g>
+          </svg>
+        </div>
+      </div>
+    </section>
+
+    <!-- ==================== SCENE 2: WAVE & SMILE (4s) ==================== -->
+    <section class="scene" data-duration="4" data-camera="push 1.15">
+      <div class="room-bg"></div>
+      <div class="room-wall" style="filter: blur(2px);"></div>
+      <div class="room-floor">
+        <div class="floor-planks"></div>
+      </div>
+      <div class="light-beam" style="left: 500px; opacity: 0.9;"></div>
+
+      <div class="story-title" data-enter="fade">
+        AnimForge AI
+        <span class="scene-sub">Scene 2 — A Friendly Greeting</span>
+      </div>
+
+      <!-- Character Waving & Smiling -->
+      <div class="character char-scene-2">
+        <div class="char-shadow"></div>
+        <svg class="pip-svg" viewBox="0 0 160 220">
+          <g id="leg-left-group">
+            <rect x="52" y="175" width="16" height="34" rx="8" fill="#15803d" />
+            <ellipse cx="60" cy="208" rx="14" ry="7" fill="#166534" />
+          </g>
+          <g id="leg-right-group">
+            <rect x="92" y="175" width="16" height="34" rx="8" fill="#15803d" />
+            <ellipse cx="100" cy="208" rx="14" ry="7" fill="#166534" />
+          </g>
+          <g id="arm-left-group">
+            <rect x="24" y="115" width="18" height="42" rx="9" fill="#16a34a" />
+            <circle cx="33" cy="158" r="10" fill="#22c55e" />
+          </g>
+          <ellipse cx="80" cy="145" rx="44" ry="48" fill="#22c55e" />
+          <ellipse cx="80" cy="152" rx="30" ry="34" fill="#bbf7d0" />
+          <!-- Right Arm WAVING with Shoulder Pivot -->
+          <g id="arm-right-group" class="arm-wave">
+            <rect x="118" y="90" width="18" height="48" rx="9" fill="#22c55e" transform="rotate(-65 127 115)" />
+            <circle cx="160" cy="85" r="12" fill="#4ade80" />
+            <circle cx="164" cy="74" r="4.5" fill="#4ade80" />
+            <circle cx="171" cy="81" r="4.5" fill="#4ade80" />
+            <circle cx="170" cy="90" r="4.5" fill="#4ade80" />
+          </g>
+          <!-- Head Smiling at Camera -->
+          <g id="head-group">
+            <g id="antenna-group" class="antenna-wiggle">
+              <path d="M 80 35 Q 80 15 95 10" stroke="#15803d" stroke-width="5" fill="none" stroke-linecap="round" />
+              <circle cx="97" cy="9" r="9" fill="#fde047" filter="drop-shadow(0 0 10px #fde047)" />
+            </g>
+            <ellipse cx="80" cy="70" rx="48" ry="42" fill="#22c55e" />
+            <ellipse cx="45" cy="84" rx="9" ry="6" fill="#f472b6" opacity="0.8" />
+            <ellipse cx="115" cy="84" rx="9" ry="6" fill="#f472b6" opacity="0.8" />
+            <g id="eye-left" class="eyelid-blink" style="transform-origin: 62px 68px;">
+              <circle cx="62" cy="68" r="14" fill="#ffffff" />
+              <circle cx="63" cy="68" r="8.5" fill="#0f172a" />
+              <circle cx="66" cy="64" r="4" fill="#ffffff" />
+              <circle cx="60" cy="72" r="1.5" fill="#ffffff" />
+            </g>
+            <g id="eye-right" class="eyelid-blink" style="transform-origin: 98px 68px;">
+              <circle cx="98" cy="68" r="14" fill="#ffffff" />
+              <circle cx="97" cy="68" r="8.5" fill="#0f172a" />
+              <circle cx="100" cy="64" r="4" fill="#ffffff" />
+              <circle cx="94" cy="72" r="1.5" fill="#ffffff" />
+            </g>
+            <!-- Wide Cheerful Smile -->
+            <path d="M 62 88 Q 80 114 98 88" stroke="#14532d" stroke-width="5" fill="#85193c" stroke-linecap="round" />
+            <ellipse cx="80" cy="100" rx="10" ry="4" fill="#f472b6" />
+          </g>
+        </svg>
+      </div>
+    </section>
+
+    <!-- ==================== SCENE 3: THE GLOWING DOOR (5s) ==================== -->
+    <section class="scene" data-duration="5" data-camera="push 1.15">
+      <div class="room-bg" style="background: #030712;"></div>
+      <div class="room-floor" style="height: 240px; background: linear-gradient(180deg, #090d16 0%, #000 100%);">
+        <div class="floor-planks"></div>
+      </div>
+
+      <!-- Glowing Portal Door -->
+      <div class="portal-arch"></div>
+      <div class="glowing-portal-door"></div>
+      <div class="portal-rays"></div>
+
+      <div class="story-title" data-enter="fade" style="top: 40px; left: 60px;">
+        AnimForge AI
+        <span class="scene-sub">Scene 3 — Entering the Gateway</span>
+      </div>
+
+      <!-- Pip Walking Toward the Glowing Door -->
+      <div class="character char-walk-to-door">
+        <div class="char-shadow" style="opacity: 0.6;"></div>
+        <div class="bob-stride">
+          <svg class="pip-svg" viewBox="0 0 160 220">
+            <!-- Left Leg -->
+            <g id="leg-left-group" class="leg-stride-l">
+              <rect x="52" y="175" width="16" height="34" rx="8" fill="#15803d" />
+              <ellipse cx="60" cy="208" rx="14" ry="7" fill="#14532d" />
+            </g>
+            <!-- Right Leg -->
+            <g id="leg-right-group" class="leg-stride-r">
+              <rect x="92" y="175" width="16" height="34" rx="8" fill="#15803d" />
+              <ellipse cx="100" cy="208" rx="14" ry="7" fill="#14532d" />
+            </g>
+            <!-- Left Arm -->
+            <g id="arm-left-group" class="leg-stride-r">
+              <rect x="24" y="115" width="18" height="40" rx="9" fill="#16a34a" />
+              <circle cx="33" cy="155" r="10" fill="#22c55e" />
+            </g>
+            <!-- Torso (Back View) -->
+            <ellipse cx="80" cy="145" rx="44" ry="48" fill="#22c55e" />
+            <!-- Back of Right Arm -->
+            <g id="arm-right-group" class="leg-stride-l">
+              <rect x="118" y="115" width="18" height="40" rx="9" fill="#22c55e" />
+              <circle cx="127" cy="155" r="10" fill="#4ade80" />
+            </g>
+            <!-- Head (Back View) -->
+            <g id="head-group">
+              <g id="antenna-group" class="antenna-wiggle">
+                <path d="M 80 35 Q 80 15 95 10" stroke="#15803d" stroke-width="5" fill="none" stroke-linecap="round" />
+                <circle cx="97" cy="9" r="10" fill="#fde047" filter="drop-shadow(0 0 15px #fde047)" />
+              </g>
+              <ellipse cx="80" cy="70" rx="48" ry="42" fill="#22c55e" />
+            </g>
+          </svg>
+        </div>
+      </div>
+    </section>
+
+  </main>
+</body>
+</html>

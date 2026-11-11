@@ -1,0 +1,25 @@
+<!doctype html>
+<html data-width="1280" data-height="720" data-fps="30">
+<head>
+<style>
+  body { margin: 0; background: #0f172a; color: #f8fafc; font-family: Inter, system-ui, sans-serif; }
+  .scene { display: flex; flex-direction: column; justify-content: center; align-items: center; width: 100%; height: 100%; }
+  h1 { font-size: 64px; margin: 0; color: #38bdf8; }
+  p { font-size: 28px; color: #94a3b8; }
+  .ball { width: 80px; height: 80px; border-radius: 50%; background: #22c55e; margin-top: 24px; }
+</style>
+</head>
+<body>
+  <main data-sequence data-transition="fade 0.5">
+    <section class="scene" data-duration="2" data-camera="push 1.1">
+      <h1 data-enter="rise">AnimForge AI</h1>
+      <p>Givemotion Test Animation</p>
+      <div class="ball" data-enter="pop"></div>
+    </section>
+    <section class="scene" data-duration="2">
+      <h1 data-enter="fade-up">Engine Ready</h1>
+      <p>Deterministic Render Test</p>
+    </section>
+  </main>
+</body>
+</html>

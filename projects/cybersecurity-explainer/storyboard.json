@@ -1,0 +1,102 @@
+{
+  "title": "AI-Powered Cyberattacks: How AI Is Changing Cybersecurity in 2026",
+  "topic": "AI Is Becoming a New Weapon for Cybercriminals",
+  "genre": "Cinematic 3D Technology Documentary Explainer",
+  "aspectRatio": "9:16",
+  "resolution": {
+    "width": 1080,
+    "height": 1920
+  },
+  "fps": 30,
+  "durationSeconds": 55,
+  "totalFrames": 1650,
+  "language": "Simple Hinglish",
+  "researchContext": {
+    "sourceEvents": [
+      "Reuters (Nov 4, 2026): CERT-In issues alerts on AI-driven automated cyberattacks targeting Indian financial institutions, banks, NBFCs, and fintech firms.",
+      "CSIRT-Fin Advisory: Threat actors (e.g. 'Crafty Falcon') utilizing AI agents and offensive tools (ARTEX, PentAGI, Cairn, CyberStrikeAI) for machine-speed reconnaissance.",
+      "API Vulnerabilities: Target exploitation of internet-facing APIs to bypass KYC/transaction limits.",
+      "Key Nuance: AI automates discovery and reconnaissance speed; it is not magic, making cybersecurity an AI vs AI battle."
+    ]
+  },
+  "scenes": [
+    {
+      "sceneNumber": 1,
+      "title": "The Hook",
+      "startSecond": 0,
+      "endSecond": 6,
+      "startFrame": 0,
+      "durationInFrames": 180,
+      "visualSummary": "A person makes an online payment on a modern 3D floating laptop. Suddenly, digital chromatic glitches tear through the UI, and a crimson holographic warning overrides the screen.",
+      "voiceoverText": "Socho... agar hackers ko attack karne ke liye khud har step perform hi na karna pade?",
+      "onScreenText": "AI-POWERED CYBERATTACKS",
+      "cameraMotion": "Slow push-in zoom into the glitching payment terminal.",
+      "audioCues": "Ambient typing, checkout chime interrupted by electrical glitch and alarming alert pulse."
+    },
+    {
+      "sceneNumber": 2,
+      "title": "What Is Happening?",
+      "startSecond": 6,
+      "endSecond": 15,
+      "startFrame": 180,
+      "durationInFrames": 270,
+      "visualSummary": "A futuristic glowing AI neural network scanner extends rays across an isometric grid of interconnected computers. Red glowing breach points appear at discovered vulnerability nodes.",
+      "voiceoverText": "2026 mein cybercriminals AI tools ka use karke software ki weaknesses identify karne aur attacks automate karne ki koshish kar rahe hain.",
+      "onScreenText": "AUTOMATED VULNERABILITY RECON",
+      "cameraMotion": "Isometric 3D diagonal flyover across the compromised network grid.",
+      "audioCues": "Futuristic neural scanner hum, digital telemetry chirps, radar sonar ping."
+    },
+    {
+      "sceneNumber": 3,
+      "title": "How Does It Work?",
+      "startSecond": 15,
+      "endSecond": 26,
+      "startFrame": 450,
+      "durationInFrames": 330,
+      "visualSummary": "A 4-stage interactive holographic pipeline: 1. AI Network Scan -> 2. Weakness Detected -> 3. Exploit Attempted -> 4. Security Alert Triggered. Visual distinction shows AI accelerates speed, not omnipotence.",
+      "voiceoverText": "AI speed badha sakta hai—information analyse karna, weaknesses identify karna aur repetitive tasks automate karna. Lekin iska matlab ye nahi ki har AI system automatically kisi bhi account ko hack kar sakta hai.",
+      "onScreenText": "MACHINE SPEED vs DEFENSE",
+      "cameraMotion": "Stepping horizontal camera tracking across the 4 stages.",
+      "audioCues": "Fast data packet streams, analytical clicks, alert buzz, reassuring shield chord."
+    },
+    {
+      "sceneNumber": 4,
+      "title": "Why India Should Care",
+      "startSecond": 26,
+      "endSecond": 38,
+      "startFrame": 780,
+      "durationInFrames": 360,
+      "visualSummary": "Cinematic 3D Indian digital financial ecosystem: glowing UPI payment streams, fintech hubs, Reserve Bank data corridors, and server racks under high-alert surveillance.",
+      "voiceoverText": "India ki cyber agency ne banks, fintech companies aur financial institutions ko AI-assisted attacks ke badhte risk ke baare mein alert kiya hai.",
+      "onScreenText": "INDIA: CYBERSECURITY ALERT",
+      "cameraMotion": "Majestic crane pan revealing glowing 3D data centre towers and India digital payment hubs.",
+      "audioCues": "Deep sub-bass pulse, rapid payment transaction chirps, CERT-In advisory beacon."
+    },
+    {
+      "sceneNumber": 5,
+      "title": "How Can We Stay Safe?",
+      "startSecond": 38,
+      "endSecond": 48,
+      "startFrame": 1140,
+      "durationInFrames": 300,
+      "visualSummary": "A multi-layered glowing cyan-gold digital security shield forms around financial nodes, locking in defensive pillars: MFA, Updated Software, Transaction Limits, Strong Auth, and Link Awareness.",
+      "voiceoverText": "Protection ke liye software updated rakho, multi-factor authentication use karo aur suspicious links se bachkar raho.",
+      "onScreenText": "ESSENTIAL DEFENSE PILLARS",
+      "cameraMotion": "Dynamic orbit around the expanding hexagonal security shield.",
+      "audioCues": "Heavy power shield activation whoosh, metallic lock clicks, pristine digital confirmation bells."
+    },
+    {
+      "sceneNumber": 6,
+      "title": "Powerful Ending",
+      "startSecond": 48,
+      "endSecond": 55,
+      "startFrame": 1440,
+      "durationInFrames": 210,
+      "visualSummary": "A radiant digital dome extends over a sprawling futuristic smart metropolis. The camera pulls back into space revealing the global grid.",
+      "voiceoverText": "AI khud na hero hai, na villain. Asli difference is baat se padega ki hum iska use kaise karte hain.",
+      "onScreenText": "THE FUTURE OF CYBERSECURITY IS AI VS AI",
+      "cameraMotion": "Slow epic pull-back reveal from skyline into orbital atmosphere, holding steady on final 2 seconds.",
+      "audioCues": "Triumphant futuristic synth crescendo, resonant resolving bass pad, clean fade."
+    }
+  ]
+}

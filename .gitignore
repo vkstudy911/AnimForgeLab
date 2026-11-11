@@ -1,0 +1,49 @@
+# OS & Editor
+.DS_Store
+*.swp
+*.swo
+.vscode/
+.idea/
+
+# Secrets & local environments
+.env
+.env.*
+.venv/
+venv/
+*.pem
+*.key
+
+# Cloned upstream engine repositories (preserved intact outside root git)
+engines/
+
+# Node / Rust dependencies & build outputs
+**/node_modules
+**/dist/
+animforge-desktop/src-tauri/target/
+
+# Agent scratch & superpowers workspace state
+.superpowers/
+
+# Generated animation projects, caches, renders, databases & models
+projects/proj_*/
+projects/animforge.db*
+projects/**/.gm-parts/
+projects/**/.remotion/
+projects/**/snapshots/
+projects/**/output/
+projects/**/bundle/
+projects/**/public/audio/
+*.mp4
+*.mov
+*.webm
+*.mkv
+*.gif
+*.wav
+*.mp3
+*.m4a
+*.onnx
+*.db
+*.db-wal
+*.db-shm
+*.sqlite
+*.sqlite3

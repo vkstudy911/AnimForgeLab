@@ -1,0 +1,88 @@
+{
+  "title": "The Little Robot & The Lost Star",
+  "genre": "Fantasy, Adventure, Emotional",
+  "aspectRatio": "9:16",
+  "resolution": {
+    "width": 1080,
+    "height": 1920
+  },
+  "fps": 30,
+  "durationSeconds": 38,
+  "totalFrames": 1140,
+  "artStyle": "Cute, cinematic, high-quality 3D-looking cartoon animation with rich depth, volumetric lighting, and particle effects",
+  "scenes": [
+    {
+      "sceneNumber": 1,
+      "title": "The Magical Forest",
+      "startSecond": 0,
+      "endSecond": 5,
+      "durationInFrames": 150,
+      "startFrame": 0,
+      "visualSummary": "Deep nighttime magical forest with layered trees, volumetric mist, and glowing floating fireflies. The small green robot walks smoothly through the clearing.",
+      "characterAnimation": "Smooth walk cycle, subtle body bobbing, eye blinking, small antenna sway.",
+      "cameraNotes": "Slow cinematic tracking shot following the robot rightward with parallax tree layers.",
+      "audioNotes": "Gentle nocturnal ambient breeze, soft cricket chimes, metallic footstep pitter-patters."
+    },
+    {
+      "sceneNumber": 2,
+      "title": "The Falling Star",
+      "startSecond": 5,
+      "endSecond": 10,
+      "durationInFrames": 150,
+      "startFrame": 150,
+      "visualSummary": "A brilliant golden-white celestial star falls diagonally across the canopy, leaving a shimmering particle tail. It impacts gently on the forest moss.",
+      "characterAnimation": "Robot pauses, turns head upward with startled wide eyes, pupils dilating in surprise.",
+      "cameraNotes": "Camera whip-tracks the falling trajectory and pans down to the landing site.",
+      "audioNotes": "High ethereal falling whistle/whoosh, followed by a soft crystalline chime impact."
+    },
+    {
+      "sceneNumber": 3,
+      "title": "Saving the Star",
+      "startSecond": 10,
+      "endSecond": 16,
+      "durationInFrames": 180,
+      "startFrame": 300,
+      "visualSummary": "The robot kneels beside the dimming, weakly pulsating star. He scoops it up gently with both hands and looks up at the vast sky.",
+      "characterAnimation": "Bends knees and hips, scoops star with both arms, cradles it close to glowing chest plate, concerned eye angle and soft blink.",
+      "cameraNotes": "Push-in medium close-up focusing on robot's expressive eyes and the warm golden glow illuminating his face.",
+      "audioNotes": "Gentle mystical hum, delicate glass chime heartbeat as star pulses faintly."
+    },
+    {
+      "sceneNumber": 4,
+      "title": "The Mountain Journey",
+      "startSecond": 16,
+      "endSecond": 24,
+      "durationInFrames": 240,
+      "startFrame": 480,
+      "visualSummary": "Steep rocky mountain incline at night. Fierce wind gusts sweep blowing leaves and cold particles across the cliffside.",
+      "characterAnimation": "Determined climbing strides, body leaning forward against the gale. A sudden gust causes a wobble; robot securely hugs the star with both arms to shield it.",
+      "cameraNotes": "Wide dynamic tracking shot showing towering mountain scale, subtle handheld camera shake during wind gusts.",
+      "audioNotes": "Howling mountain winds, gust sweeps, strained mechanical foot steps on stone."
+    },
+    {
+      "sceneNumber": 5,
+      "title": "Returning the Star",
+      "startSecond": 24,
+      "endSecond": 31,
+      "durationInFrames": 210,
+      "startFrame": 720,
+      "visualSummary": "High mountain summit above the cloud line. The night sky is crystal clear. Robot steps to the edge, lifts the star high, and casts it into the heavens.",
+      "characterAnimation": "Anticipation squat, smooth extension as arms thrust skyward releasing the star; head tracks star soaring into the upper atmosphere.",
+      "cameraNotes": "Camera cranes upward, tilting vertically to follow the star soaring through the sky leaving a golden trail.",
+      "audioNotes": "Wind subsides; deep bass crescendo followed by a radiant rising chord and launch whoosh."
+    },
+    {
+      "sceneNumber": 6,
+      "title": "Magical Ending",
+      "startSecond": 31,
+      "endSecond": 38,
+      "durationInFrames": 210,
+      "startFrame": 930,
+      "visualSummary": "The star locks into the center of the firmament, detonating a wave of thousands of sparkling constellations and colorful aurora ribbons. Robot watches in awe, smiling warmly.",
+      "characterAnimation": "Robot stands relaxed, smiling with eyes curved happily, chest light glowing emerald-cyan in sync with the sky, head gently tilting.",
+      "cameraNotes": "Grand cinematic pull-back reveal, floating upward to show robot silhouetted against the swirling cosmic galaxy.",
+      "finalText": "Sometimes, even the smallest hands can bring back the biggest light.",
+      "audioNotes": "Lush orchestral music swell, shimmering stardust chimes, peaceful resolving harmony holding through the fade."
+    }
+  ]
+}

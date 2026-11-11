@@ -2,7 +2,7 @@
 
 **Last Updated:** 2026-11-11  
 **Active Milestone:** Milestone 1 — Core Foundation  
-**Current Task:** `M1-T09` (Workstream F — Blocked awaiting explicit user approval to install `rustup`/`rustc`/`cargo`)
+**Current Task:** `M1-T11` (Workstream H — Pending user approval; stopped cleanly after `M1-T10` without launching live GUI)
 
 ---
 
@@ -27,9 +27,9 @@
 | `M1-T06` | D2 — Safe Process Exec | Replace `execAsync` with `spawn`/`execFile` (`shell: false`), `--progress json` NDJSON, workers=1 | `DONE` | Clean (`41eea9c1` -> `d61df876`: Ship) | `8be6904` | `npm run typecheck && npm test`: `20/20` pass (arg arrays, `stdout` 100KB drain, Windows `npx-cli.js`, chunked NDJSON, `check` exit-1 QA recovery, disk hydration, `dispose`) |
 | `M1-T07` | D3 — Stdio Worker | `animforge-core/src/worker.ts` JSON stdio IPC bridge + lifecycle tests | `DONE` | Clean (`7af33986`: Hold -> Ship) | `9ab6234` | `npm run typecheck && npm test`: `22/22` pass (NDJSON RPC, concurrent dispatch, `jobId` progress stream, `stdin` EOF mid-render drain, `SIGTERM` child kill, SQLite+disk fallback, `../` jail) |
 | `M1-T08` | E — Real MP4 Export | Real GiveMotion HTML -> Chrome -> FFmpeg MP4 render + `ffprobe` verification | `DONE` | Clean (`c61b2086`: Ship) | `3cffcbb` | `tsc --noEmit` exit `0`; `22/22` unit pass + `1` integration skipped (`766ms`); `npm run test:integration` (`BypassSandbox: true`, `task-930`) `1/1` pass in `13.1s` (real Chrome + FFmpeg + `ffprobe` H.264 `1280x720` MP4 `>= 1.5s`, bundle/NDJSON checks, workspace cleaned) |
-| `M1-T09` | F — Desktop Shell | Install `rustup` (with approval) & scaffold Tauri 2 + React 18 + Vite app | `BLOCKED` | Pending | — | Blocked: `rustup`/`rustc`/`cargo` absent on host (`exit 127`) |
-| `M1-T10` | G — Native Doctor | Rust-backed PASS/WARN/FAIL checks across OS/Rust/Node/FFmpeg/3 engines/dirs | `BLOCKED` | Pending | — | Depends on `M1-T09` |
-| `M1-T11` | H — `<gm-player>` Preview | Worker bridge, jailed `127.0.0.1` HTTP server, real `<gm-player>` UI stage | `BLOCKED` | Pending | — | Depends on `M1-T10` |
+| `M1-T09` | F — Desktop Shell | Install `rustup` (with approval) & scaffold Tauri 2 + React 18 + Vite app | `DONE` | Clean (`03d343c8`: Ship) | `4815167` | `rustup 1.29.3`, `rustc 1.99.1`, `cargo 1.99.1` (`stable-aarch64-apple-darwin`); `@tauri-apps/cli 2.12.4`, `tauri 2.12.5`, `react 18.3.1`, `vite 5.4.21`; `cargo test` (`2/2`), `vitest` (`1/1`), `vite build` (`205ms`) |
+| `M1-T10` | G — Native Doctor | Rust-backed PASS/WARN/FAIL checks across OS/Rust/Node/FFmpeg/3 engines/dirs | `DONE` | Clean (`fe0ae7d2`: Hold -> Ship) | `af92c9b` | `cargo clippy --all-targets -- -D warnings` (`0` warnings); `cargo test` (`7/7`, incl. trailing-space fixture, child-`PATH` propagation, 8-category probe); `vitest run` (`6/6`, StrictMode concurrency + accessibility); `vite build` (`207ms`) |
+| `M1-T11` | H — `<gm-player>` Preview | Worker bridge, jailed `127.0.0.1` HTTP server, real `<gm-player>` UI stage | `PENDING` | Pending | — | Dependencies (`M1-T10`) satisfied; paused per user stop boundary |
 
 ---
 
@@ -38,3 +38,4 @@
 - **2026-11-11 — Skill Execution Mapping:** Verified Superpowers (`writing-plans`, `subagent-driven-development`, `executing-plans`, `test-driven-development`, `systematic-debugging`, `verification-before-completion`) and Ponytail (`ponytail`, `ponytail-review`) skills are installed and inspected. Mapped subagent independent reviews to `invoke_subagent`.
 - **2026-11-11 — Toolchain Execution Order:** Execute Node/TypeScript Workstreams **A–D** (`M1-T02`..`M1-T07`) autonomously right away, verify **E** (`M1-T08` real Chrome + FFmpeg + `ffprobe` render, requesting unsandboxed execution if sandbox blocks Chrome), and pause cleanly at **F** (`M1-T09`) to request approval for `rustup` installation.
 - **2026-11-11 — M1-T08 Ship & M1-T09 Pause:** `M1-T08` passed real Chrome + FFmpeg + `ffprobe` export in `13.1s` (`task-930`, commit `3cffcbb`) after surfacing top-level `check --json` runtime errors in `parseCheckReport`. Reviewer `c61b2086` returned `Verdict: Ship.` with two non-blocking hardenings noted for follow-up (`dispose()` child-exit wait on timeout vs async test hook, direct-`.ts` root resolution in `givemotion.integration.test.ts`). Stopped cleanly before `M1-T09` because `rustup`/`rustc`/`cargo` are absent (`exit 127`) and require explicit user approval to install.
+- **2026-11-11 — M1-T09 & M1-T10 Ship, Paused Before M1-T11:** Installed official `rustup 1.29.3` (`rustc 1.99.1`, `cargo 1.99.1`, `stable-aarch64-apple-darwin`) after explicit approval, verified Xcode CLT + macOS `WebKit.framework` (`WKWebView`) prerequisites with zero Linux packages installed on macOS, scaffolded `animforge-desktop/` (`4815167`, reviewer `03d343c8: Ship`), and delivered the 8-category Rust `run_doctor` backend + accessible `<DoctorBar />` UI (`af92c9b`, reviewer `fe0ae7d2: Ship` after adding child-`PATH` propagation, StrictMode run sequencing, and WCAG 1.4.11 boundary contrast). Recorded report in `MILESTONE_1_REPORT.md` and paused cleanly before `M1-T11` without launching the live GUI.

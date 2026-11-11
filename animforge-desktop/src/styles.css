@@ -4,12 +4,16 @@
   --surface: #131926;
   --surface-elevated: #1a2233;
   --border: #2a3447;
+  --control-border: #64748b;
   --text: #f1f5f9;
   --text-muted: #94a3b8;
   --accent: #38bdf8;
-  --pass: #22c55e;
-  --warn: #f59e0b;
-  --fail: #ef4444;
+  --pass-bg: #14532d;
+  --pass-fg: #dcfce7;
+  --warn-bg: #78350f;
+  --warn-fg: #fef3c7;
+  --fail-bg: #7f1d1d;
+  --fail-fg: #fee2e2;
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
 }
 
@@ -72,12 +76,108 @@ body {
   padding: 1rem 1.25rem;
 }
 
+.doctor-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-bottom: 0.75rem;
+}
+
+.doctor-header h2 {
+  margin: 0;
+  font-size: 1rem;
+}
+
+.doctor-root {
+  margin: 0.25rem 0 0;
+  font-size: 0.8125rem;
+  color: var(--text-muted);
+  word-break: break-all;
+}
+
+.doctor-error {
+  padding: 0.65rem 0.85rem;
+  margin-bottom: 0.75rem;
+  border-radius: 6px;
+  background-color: var(--fail-bg);
+  color: var(--fail-fg);
+  border: 1px solid #ef4444;
+  font-size: 0.875rem;
+}
+
+.doctor-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 0.75rem;
+}
+
+.doctor-item {
+  background-color: var(--surface-elevated);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 0.75rem;
+}
+
+.doctor-item-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+
+.doctor-label {
+  font-weight: 600;
+  font-size: 0.875rem;
+}
+
+.doctor-summary,
+.doctor-detail {
+  margin: 0.35rem 0 0;
+  font-size: 0.8125rem;
+}
+
+.doctor-detail {
+  color: var(--text-muted);
+  word-break: break-word;
+}
+
+.badge {
+  display: inline-block;
+  padding: 0.15rem 0.45rem;
+  border-radius: 4px;
+  font-size: 0.75rem;
+  font-weight: 700;
+  border: 1px solid transparent;
+}
+
+.badge-pass {
+  background-color: var(--pass-bg);
+  color: var(--pass-fg);
+  border-color: #22c55e;
+}
+
+.badge-warn {
+  background-color: var(--warn-bg);
+  color: var(--warn-fg);
+  border-color: #f59e0b;
+}
+
+.badge-fail {
+  background-color: var(--fail-bg);
+  color: var(--fail-fg);
+  border-color: #ef4444;
+}
+
 button {
   min-block-size: 32px;
   min-inline-size: 32px;
   padding: 0.4rem 0.85rem;
   border-radius: 6px;
-  border: 1px solid var(--border);
+  border: 1px solid var(--control-border);
   background-color: var(--surface-elevated);
   color: var(--text);
   font: inherit;
@@ -102,6 +202,8 @@ button:disabled {
 @media (forced-colors: active) {
   .panel,
   .studio-header,
+  .doctor-item,
+  .badge,
   button {
     border: 1px solid CanvasText;
   }

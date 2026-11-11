@@ -1,3 +1,5 @@
+pub mod doctor;
+
 use std::ffi::OsStr;
 use std::path::{Path, PathBuf};
 
@@ -68,6 +70,7 @@ pub fn run() {
         resolve_workspace_root().expect("AnimForgeLab workspace root must be resolvable");
     tauri::Builder::default()
         .manage(AppPaths { workspace_root })
+        .invoke_handler(tauri::generate_handler![doctor::run_doctor])
         .run(tauri::generate_context!())
         .expect("error while running AnimForge Studio");
 }

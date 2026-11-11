@@ -20,6 +20,7 @@ engines/
 **/node_modules
 **/dist/
 animforge-desktop/src-tauri/target/
+animforge-desktop/src-tauri/gen/schemas/
 
 # Agent scratch & superpowers workspace state
 .superpowers/

@@ -95,6 +95,9 @@ function parseCheckReport(stdout: string, exitCode: number, stderr: string): {
     throw new Error('Givemotion check returned unexpected JSON payload');
   }
   const rec = raw as Record<string, unknown>;
+  if (typeof rec.error === 'string' && rec.error.length > 0) {
+    throw new Error(`Givemotion check failed (exit ${exitCode}): ${rec.error}`);
+  }
   const issues: GiveMotionCheckIssue[] = Array.isArray(rec.issues)
     ? rec.issues
         .filter((i): i is Record<string, unknown> => typeof i === 'object' && i !== null)

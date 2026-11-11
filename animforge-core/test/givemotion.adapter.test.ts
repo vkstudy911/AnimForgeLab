@@ -137,7 +137,7 @@ test('GivemotionAdapter uses shell-free arg arrays, writes givemotion.json & ind
   const execCalls: Array<{ cmd: string; args: string[]; cwd?: string }> = [];
   const spawnCalls: Array<{ cmd: string; args: string[]; cwd?: string }> = [];
   let activeFake: ReturnType<typeof createFakeSpawn> | null = null;
-  let checkShouldFailQa = false;
+  let checkMode: 'pass' | 'qa_fail' | 'fatal_error' = 'pass';
   let doctorExitCode = 0;
   let doctorStdout = 'node v24.19.0\nchrome /opt/chrome\nffmpeg 9.0.1 encoders: libx264\n';
   let doctorStderr = '';
@@ -154,7 +154,14 @@ test('GivemotionAdapter uses shell-free arg arrays, writes givemotion.json & ind
         };
       }
       if (subcmd === 'check') {
-        if (checkShouldFailQa) {
+        if (checkMode === 'fatal_error') {
+          return {
+            stdout: JSON.stringify({ ok: false, error: 'listen EPERM: operation not permitted 127.0.0.1' }),
+            stderr: '',
+            exitCode: 1,
+          };
+        }
+        if (checkMode === 'qa_fail') {
           return {
             stdout: JSON.stringify({
               ok: false,
@@ -262,8 +269,11 @@ test('GivemotionAdapter uses shell-free arg arrays, writes givemotion.json & ind
     assert.ok(html.includes('Final One'));
     assert.ok(!html.includes('Draft One'));
 
-    // Preview handles check --json exitCode=1 cleanly and recovers QA issues
-    checkShouldFailQa = true;
+    // Preview handles check --json exitCode=1 QA issues AND throws on top-level runtime check error
+    checkMode = 'fatal_error';
+    await assert.rejects(() => adapter.previewProject(projectId), /listen EPERM/);
+
+    checkMode = 'qa_fail';
     const qaFailPreview = await adapter.previewProject(projectId);
     assert.equal(qaFailPreview.ok, false);
     assert.equal(qaFailPreview.errors, 1);
@@ -271,7 +281,7 @@ test('GivemotionAdapter uses shell-free arg arrays, writes givemotion.json & ind
     await assert.rejects(() => adapter.preview('scene_1'), /Text clipped/);
 
     // Clean check + bundle
-    checkShouldFailQa = false;
+    checkMode = 'pass';
     const previewMsg = await adapter.preview('scene_1');
     assert.ok(previewMsg.includes('bundle'));
 

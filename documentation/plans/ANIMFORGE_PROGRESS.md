@@ -2,7 +2,7 @@
 
 **Last Updated:** 2026-11-11  
 **Active Milestone:** Milestone 1 — Core Foundation  
-**Current Task:** `M1-T11` (Workstream H — Pending user approval; stopped cleanly after `M1-T10` without launching live GUI)
+**Current Task:** `M1-T11` (`M1-T11.2` Next — Executing M1-T11 micro-tasks sequentially)
 
 ---
 
@@ -29,7 +29,12 @@
 | `M1-T08` | E — Real MP4 Export | Real GiveMotion HTML -> Chrome -> FFmpeg MP4 render + `ffprobe` verification | `DONE` | Clean (`c61b2086`: Ship) | `3cffcbb` | `tsc --noEmit` exit `0`; `22/22` unit pass + `1` integration skipped (`766ms`); `npm run test:integration` (`BypassSandbox: true`, `task-930`) `1/1` pass in `13.1s` (real Chrome + FFmpeg + `ffprobe` H.264 `1280x720` MP4 `>= 1.5s`, bundle/NDJSON checks, workspace cleaned) |
 | `M1-T09` | F — Desktop Shell | Install `rustup` (with approval) & scaffold Tauri 2 + React 18 + Vite app | `DONE` | Clean (`03d343c8`: Ship) | `4815167` | `rustup 1.29.3`, `rustc 1.99.1`, `cargo 1.99.1` (`stable-aarch64-apple-darwin`); `@tauri-apps/cli 2.12.4`, `tauri 2.12.5`, `react 18.3.1`, `vite 5.4.21`; `cargo test` (`2/2`), `vitest` (`1/1`), `vite build` (`205ms`) |
 | `M1-T10` | G — Native Doctor | Rust-backed PASS/WARN/FAIL checks across OS/Rust/Node/FFmpeg/3 engines/dirs | `DONE` | Clean (`fe0ae7d2`: Hold -> Ship) | `af92c9b` | `cargo clippy --all-targets -- -D warnings` (`0` warnings); `cargo test` (`7/7`, incl. trailing-space fixture, child-`PATH` propagation, 8-category probe); `vitest run` (`6/6`, StrictMode concurrency + accessibility); `vite build` (`207ms`) |
-| `M1-T11` | H — `<gm-player>` Preview | Worker bridge, jailed `127.0.0.1` HTTP server, real `<gm-player>` UI stage | `PENDING` | Pending | — | Dependencies (`M1-T10`) satisfied; paused per user stop boundary |
+| `M1-T11` | H — `<gm-player>` Preview | Worker bridge, jailed `127.0.0.1` HTTP server, real `<gm-player>` UI stage | `IN_PROGRESS` | Per-task reviews | Pending | Micro-tasks tracked in `M1_T11_TASKS.md` (`M1-T11.1`..`M1-T11.5`) |
+| `M1-T11.1` | H1 — Protocol v1 | Versioned stdio protocol (`v1`), structured errors, `cancel_render` | `DONE` | Clean (`af86fb2a`: all 7 findings fixed) | Pending commit | `npm run typecheck && npm run build && npm test`: `22/22` unit pass (`1` integration skipped cleanly); verified `WORKER_PROTOCOL.md`, `cancel_render`, cancel-then-rerender |
+| `M1-T11.2` | H2 — Rust Worker Bridge | Persistent Node worker stdio bridge + non-blocking Tauri commands | `PENDING` | Pending | — | Queued next |
+| `M1-T11.3` | H3 — Preview HTTP Server | Path-jailed `127.0.0.1:0` server with canonicalization & `Range` support | `PENDING` | Pending | — | Queued after `M1-T11.2` |
+| `M1-T11.4` | H4 — Studio UI & Player | `useStudio` hook + `<PreviewStage />` mounting real `<gm-player>` | `PENDING` | Pending | — | Queued after `M1-T11.3` |
+| `M1-T11.5` | H5 — Live Smoke & Audit | Live Tauri app E2E smoke test, final review & M1 final report | `PENDING` | Pending | — | Queued after `M1-T11.4` |
 
 ---
 

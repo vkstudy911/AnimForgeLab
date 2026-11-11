@@ -370,6 +370,20 @@ test('GivemotionAdapter uses shell-free arg arrays, writes givemotion.json & ind
     await adapter.createProject(projectId, BASE_CONFIG);
     await assert.rejects(() => adapter.preview('scene_1'), /No Givemotion project/);
 
+    // cancelRender kills active project render process with SIGTERM, blocks concurrent render, and settles even if code===0
+    assert.equal(await adapter.cancelRender(projectId), false);
+    const cancelJob = await adapter.render(projectId);
+    const cancelFake = activeFake!;
+    await assert.rejects(() => adapter.render(projectId), /already in progress/);
+    assert.equal(await adapter.cancelRender(projectId), true);
+    assert.equal(await adapter.cancelRender(projectId), false);
+    assert.deepEqual(cancelFake.killedSignals, ['SIGTERM']);
+    await closeFakeSpawn(cancelFake, 0, null);
+    const cancelStatus = await adapter.getRenderStatus(cancelJob.id);
+    assert.equal(cancelStatus.status, 'failed');
+    assert.match(cancelStatus.error ?? '', /cancel/i);
+    assert.equal(await adapter.cancelRender(projectId), false);
+
     // dispose() sends SIGTERM to active render process and error+close race leaves job failed
     const killJob = await adapter.render(projectId);
     const killFake = activeFake!;

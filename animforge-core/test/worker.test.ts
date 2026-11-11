@@ -10,7 +10,7 @@ const WORKER_ENTRY = path.resolve(import.meta.dirname, '..', 'src', 'worker.js')
 
 interface WorkerClient {
   proc: ChildProcessWithoutNullStreams;
-  call(method: string, params?: unknown, id?: string): Promise<Record<string, unknown>>;
+  call(method: string, params?: unknown, id?: string, extra?: Record<string, unknown>): Promise<Record<string, unknown>>;
   sendRaw(line: string): Promise<Record<string, unknown>>;
   events: Array<Record<string, unknown>>;
   closeAndWaitExit(timeoutMs?: number): Promise<number | null>;
@@ -62,7 +62,7 @@ function startWorkerClient(workspaceDir: string): WorkerClient {
   return {
     proc,
     events,
-    call(method, params, explicitId) {
+    call(method, params, explicitId, extra) {
       const id = explicitId ?? `req_${++seq}`;
       return new Promise((resolve, reject) => {
         const timer = setTimeout(() => {
@@ -73,7 +73,7 @@ function startWorkerClient(workspaceDir: string): WorkerClient {
           clearTimeout(timer);
           resolve(msg);
         });
-        proc.stdin.write(`${JSON.stringify({ id, method, params })}\n`);
+        proc.stdin.write(`${JSON.stringify({ id, method, params, ...extra })}\n`);
       });
     },
     sendRaw(line) {
@@ -110,22 +110,57 @@ test('worker handles malformed JSON, traversal jail, CRUD persistence in DB+HTML
 
   const client = startWorkerClient(workspaceTrailing);
   try {
-    // 1. Malformed JSON returns structured error without crashing worker
+    // 1. Malformed JSON returns structured error with version=1 and error code without crashing worker
     const badJson = await client.sendRaw('{not valid json');
+    assert.equal(badJson.version, 1);
     assert.equal(badJson.ok, false);
+    assert.equal(badJson.code, 'MALFORMED_JSON');
     assert.ok(String(badJson.error).includes('JSON'));
+
+    // Unsupported protocol version rejected cleanly even without method field
+    const badVer = await client.call('doctor', {}, 'ver_2', { version: 2 });
+    assert.equal(badVer.version, 1);
+    assert.equal(badVer.id, 'ver_2');
+    assert.equal(badVer.ok, false);
+    assert.equal(badVer.code, 'UNSUPPORTED_PROTOCOL_VERSION');
+
+    const badVerNoMethod = await client.sendRaw(JSON.stringify({ version: 2 }));
+    assert.equal(badVerNoMethod.ok, false);
+    assert.equal(badVerNoMethod.code, 'UNSUPPORTED_PROTOCOL_VERSION');
+
+    const badEnvelope = await client.sendRaw(JSON.stringify({ method: 'doctor' }));
+    assert.equal(badEnvelope.ok, false);
+    assert.equal(badEnvelope.code, 'INVALID_REQUEST');
+
+    const badParams = await client.call('load_project', {});
+    assert.equal(badParams.ok, false);
+    assert.equal(badParams.code, 'INVALID_PARAMS');
 
     // 2. Traversal attack rejected
     const evilCreate = await client.call('create_project', {
       projectId: '../evil',
       config: { name: 'Bad', prompt: 'Bad', width: 1280, height: 720, fps: 30, preferredEngine: 'givemotion' },
     });
+    assert.equal(evilCreate.version, 1);
     assert.equal(evilCreate.ok, false);
+    assert.equal(evilCreate.code, 'INVALID_ID');
     assert.match(String(evilCreate.error), /Invalid project id/);
 
     const evilLoad = await client.call('load_project', { projectId: '../secret' });
     assert.equal(evilLoad.ok, false);
+    assert.equal(evilLoad.code, 'INVALID_ID');
     assert.match(String(evilLoad.error), /Invalid project id/);
+
+    const evilScenePreview = await client.call('preview_project', {
+      projectId: 'proj_missing',
+      sceneId: '../bad',
+    });
+    assert.equal(evilScenePreview.ok, false);
+    assert.equal(evilScenePreview.code, 'INVALID_ID');
+
+    const unknownMethod = await client.call('no_such_method', {});
+    assert.equal(unknownMethod.ok, false);
+    assert.equal(unknownMethod.code, 'UNKNOWN_METHOD');
 
     // 3. Real doctor fallback (using AnimForgeLab engines/givemotion/src/cli.js)
     const docRes = await client.call('doctor', {});
@@ -169,13 +204,14 @@ test('worker handles malformed JSON, traversal jail, CRUD persistence in DB+HTML
     const loadedProject = (loaded.result as { project: typeof project }).project;
     assert.equal(loadedProject.id, project.id);
 
-    // save_project rejects scene.projectId mismatch
+    // save_project rejects scene.projectId mismatch with INVALID_PARAMS
     const badSceneProject = {
       ...loadedProject,
       scenes: [{ ...loadedProject.scenes[0], projectId: 'proj_other' }],
     };
     const badSave = await client.call('save_project', { project: badSceneProject });
     assert.equal(badSave.ok, false);
+    assert.equal(badSave.code, 'INVALID_PARAMS');
     assert.match(String(badSave.error), /mismatch/);
 
     // 6. save_project updates SQLite + HTML cleanly with HTML escaping
@@ -214,7 +250,36 @@ test('worker handles malformed JSON, traversal jail, CRUD persistence in DB+HTML
     await fs.writeFile(path.join(badDiskDir, 'project.animforge.json'), '{corrupt', 'utf-8');
     const badDiskLoaded = await client.call('load_project', { projectId: 'proj_bad_disk' });
     assert.equal(badDiskLoaded.ok, false);
+    assert.equal(badDiskLoaded.code, 'INTERNAL_ERROR');
     assert.doesNotMatch(String(badDiskLoaded.error), /Project not found/);
+
+    const badDiskSceneDir = path.join(workspaceTrailing, 'projects', 'proj_bad_disk_scene');
+    await fs.mkdir(badDiskSceneDir, { recursive: true });
+    await fs.writeFile(
+      path.join(badDiskSceneDir, 'project.animforge.json'),
+      JSON.stringify({
+        config: { name: 'Bad Scene', prompt: 'From disk', width: 1280, height: 720, fps: 30, preferredEngine: 'givemotion' },
+        characters: [],
+        scenes: [
+          {
+            id: '../escape',
+            projectId: 'proj_bad_disk_scene',
+            sequenceIndex: 0,
+            title: 'Bad',
+            description: 'Bad scene id',
+            duration: 1,
+            characterIds: [],
+            timeline: { duration: 1, fps: 30, characterActions: [], cameraMoves: [], audioTracks: [] },
+            transition: { type: 'fade', duration: 0.5 },
+          },
+        ],
+      }),
+      'utf-8'
+    );
+    const badDiskSceneLoaded = await client.call('load_project', { projectId: 'proj_bad_disk_scene' });
+    assert.equal(badDiskSceneLoaded.ok, false);
+    assert.equal(badDiskSceneLoaded.code, 'INTERNAL_ERROR');
+    assert.match(String(badDiskSceneLoaded.error), /Invalid project manifest/);
 
     const exitCode = await client.closeAndWaitExit(2000);
     assert.equal(exitCode, 0);
@@ -233,6 +298,7 @@ test('worker preview_project and render_project stream progress non-blockingly a
   await fs.mkdir(fakeEngineSrc, { recursive: true });
 
   const fakeCli = `
+import fsSync from 'node:fs';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 const args = process.argv.slice(2);
@@ -257,7 +323,8 @@ if (cmd === 'bundle') {
 if (cmd === 'render') {
   const outMp4 = args[args.indexOf('-o') + 1];
   const slowMarker = path.join(path.dirname(outMp4), '.slow_pid');
-  if (outMp4.includes('proj_signal_test')) {
+  const fastMarker = path.join(path.dirname(outMp4), '.fast_rerender');
+  if (outMp4.includes('proj_signal_test') && !fsSync.existsSync(fastMarker)) {
     await fs.writeFile(slowMarker, String(process.pid), 'utf8');
     await new Promise((r) => setTimeout(r, 8000));
     process.exit(0);
@@ -350,8 +417,55 @@ if (cmd === 'render') {
     });
     assert.equal(createdSig.ok, true);
 
-    void sigClient.call('render_project', { projectId: 'proj_signal_test' });
+    // cancel_render stops active render cleanly with RENDER_CANCELLED without tearing down worker
+    const idleCancel = await sigClient.call('cancel_render', { projectId: 'proj_signal_test' });
+    assert.equal(idleCancel.ok, true);
+    assert.equal((idleCancel.result as { cancelled: boolean }).cancelled, false);
+
+    const cancelledRenderPromise = sigClient.call('render_project', { projectId: 'proj_signal_test' });
     const markerPath = path.join(workspaceTrailing, 'projects', 'proj_signal_test', '.slow_pid');
+    let cancelledPid = 0;
+    for (let i = 0; i < 40; i++) {
+      try {
+        cancelledPid = Number((await fs.readFile(markerPath, 'utf-8')).trim());
+        if (cancelledPid > 0) break;
+      } catch {
+        await new Promise((r) => setTimeout(r, 25));
+      }
+    }
+    assert.ok(cancelledPid > 0, 'expected slow fake render PID marker before cancel');
+
+    const cancelResp = await sigClient.call('cancel_render', { projectId: 'proj_signal_test' });
+    assert.equal(cancelResp.ok, true);
+    assert.equal((cancelResp.result as { cancelled: boolean }).cancelled, true);
+
+    const cancelledRenderRes = await cancelledRenderPromise;
+    assert.equal(cancelledRenderRes.ok, false);
+    assert.equal(cancelledRenderRes.code, 'RENDER_CANCELLED');
+    assert.match(String(cancelledRenderRes.error), /cancel/i);
+
+    await fs.rm(markerPath, { force: true });
+    let cancelledChildAlive = true;
+    await new Promise((r) => setTimeout(r, 50));
+    try {
+      process.kill(cancelledPid, 0);
+    } catch {
+      cancelledChildAlive = false;
+    }
+    assert.equal(cancelledChildAlive, false);
+
+    // Immediate re-render after cancel_render works cleanly on the same project
+    const fastMarker = path.join(workspaceTrailing, 'projects', 'proj_signal_test', '.fast_rerender');
+    await fs.writeFile(fastMarker, '1', 'utf-8');
+    const rerenderRes = await sigClient.call('render_project', { projectId: 'proj_signal_test' });
+    assert.equal(rerenderRes.ok, true);
+    assert.equal(
+      (rerenderRes.result as { renderJob: { status: string } }).renderJob.status,
+      'completed'
+    );
+    await fs.rm(fastMarker, { force: true });
+
+    void sigClient.call('render_project', { projectId: 'proj_signal_test' });
     let childPid = 0;
     for (let i = 0; i < 40; i++) {
       try {

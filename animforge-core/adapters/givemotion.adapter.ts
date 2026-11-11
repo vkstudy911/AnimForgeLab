@@ -124,6 +124,7 @@ export class GivemotionAdapter implements AnimationEngineAdapter {
   private projects = new Map<string, StoredProjectState>();
   private sceneToProject = new Map<string, string>();
   private activeProcesses = new Set<SpawnedProcess>();
+  private activeRendersByProject = new Map<string, { jobId: string; cancel: () => boolean }>();
 
   constructor(workspaceDir: string, cliPath?: string, runner?: ProcessRunner) {
     this.workspaceDir = workspaceDir;
@@ -383,6 +384,9 @@ export class GivemotionAdapter implements AnimationEngineAdapter {
     onProgress?: (info: RenderProgressUpdate) => void
   ): Promise<RenderJob> {
     const safeProjectId = assertSafeId(projectId, 'project');
+    if (this.activeRendersByProject.has(safeProjectId)) {
+      throw new Error(`Render already in progress for project ${safeProjectId}`);
+    }
     const jobId = nextId('job');
     const projectDir = resolveProjectDir(this.workspaceDir, safeProjectId);
     const inputHtml = path.join(projectDir, 'index.html');
@@ -423,9 +427,12 @@ export class GivemotionAdapter implements AnimationEngineAdapter {
     const stderrLines: string[] = [];
     let doneEmitted = false;
     let settled = false;
+    let cancelled = false;
+    let killTimer: ReturnType<typeof setTimeout> | null = null;
 
     const parser = createNdjsonLineParser(
       (ev) => {
+        if (cancelled) return;
         if (ev.event === 'progress') {
           const pct = progressPercent(ev);
           job.progress = pct;
@@ -452,28 +459,62 @@ export class GivemotionAdapter implements AnimationEngineAdapter {
     );
 
     child.stderr?.on('data', (chunk: Buffer | string) => {
-      if (settled) return;
+      if (settled || cancelled) return;
       parser.push(chunk);
     });
 
-    const settleFailure = (message: string) => {
-      if (settled) return;
+    const cleanupRender = () => {
       settled = true;
+      if (killTimer) {
+        clearTimeout(killTimer);
+        killTimer = null;
+      }
       this.activeProcesses.delete(child);
-      parser.flush();
+      if (this.activeRendersByProject.get(safeProjectId)?.jobId === jobId) {
+        this.activeRendersByProject.delete(safeProjectId);
+      }
+    };
+
+    const settleFailure = (message: string, skipParserFlush = false) => {
+      if (settled) return;
+      cleanupRender();
+      if (!skipParserFlush) {
+        parser.flush();
+      }
       job.status = 'failed';
       job.error = message;
       job.finishedAt = new Date().toISOString();
     };
 
+    this.activeRendersByProject.set(safeProjectId, {
+      jobId,
+      cancel: () => {
+        if (settled || cancelled) return false;
+        cancelled = true;
+        if (!child.killed) {
+          child.kill('SIGTERM');
+        }
+        killTimer = setTimeout(() => {
+          if (!settled) {
+            child.kill('SIGKILL');
+          }
+        }, 2000);
+        killTimer.unref?.();
+        return true;
+      },
+    });
+
     child.once('error', (err: unknown) => {
-      settleFailure(toErrorMessage(err));
+      settleFailure(cancelled ? 'Render cancelled by user' : toErrorMessage(err), cancelled);
     });
 
     child.once('close', (code: number | null, signal: NodeJS.Signals | null) => {
       if (settled) return;
-      settled = true;
-      this.activeProcesses.delete(child);
+      if (cancelled) {
+        settleFailure('Render cancelled by user', true);
+        return;
+      }
+      cleanupRender();
       parser.flush();
 
       if (code === 0 && !stderrError) {
@@ -520,7 +561,17 @@ export class GivemotionAdapter implements AnimationEngineAdapter {
     return job.outputFilePath;
   }
 
+  async cancelRender(projectId: string): Promise<boolean> {
+    const safeProjectId = assertSafeId(projectId, 'project');
+    const active = this.activeRendersByProject.get(safeProjectId);
+    if (!active) {
+      return false;
+    }
+    return active.cancel();
+  }
+
   async dispose(): Promise<void> {
+    this.activeRendersByProject.clear();
     for (const child of this.activeProcesses) {
       if (!child.killed) {
         child.kill('SIGTERM');

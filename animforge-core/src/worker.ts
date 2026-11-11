@@ -15,7 +15,30 @@ import { assertSafeId, resolveProjectDir, resolveWorkspacePath } from '../utils/
 import { AnimForgeDatabase } from './database.js';
 import { AnimForgePipeline } from './pipeline.js';
 
+export const WORKER_PROTOCOL_VERSION = 1 as const;
+
+export type WorkerErrorCode =
+  | 'MALFORMED_JSON'
+  | 'INVALID_REQUEST'
+  | 'UNSUPPORTED_PROTOCOL_VERSION'
+  | 'UNKNOWN_METHOD'
+  | 'INVALID_ID'
+  | 'INVALID_PARAMS'
+  | 'RENDER_CANCELLED'
+  | 'INTERNAL_ERROR';
+
+export class WorkerRpcError extends Error {
+  constructor(
+    readonly code: WorkerErrorCode,
+    message: string
+  ) {
+    super(message);
+    this.name = 'WorkerRpcError';
+  }
+}
+
 const WorkerRequestSchema = z.object({
+  version: z.unknown().optional(),
   id: z.union([z.string().min(1), z.number().int()]),
   method: z.string().min(1),
   params: z.unknown().optional(),
@@ -47,6 +70,23 @@ const DiskManifestSchema = z.object({
 
 function toErrorMessage(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
+}
+
+function classifyWorkerError(err: unknown): { code: WorkerErrorCode; message: string } {
+  if (err instanceof WorkerRpcError) {
+    return { code: err.code, message: err.message };
+  }
+  if (err instanceof z.ZodError) {
+    return {
+      code: 'INVALID_PARAMS',
+      message: err.issues.map((i) => `${i.path.join('.') || 'params'}: ${i.message}`).join('; '),
+    };
+  }
+  const message = toErrorMessage(err);
+  if (/^Invalid (?:project|scene|[a-z]+) id\b/i.test(message)) {
+    return { code: 'INVALID_ID', message };
+  }
+  return { code: 'INTERNAL_ERROR', message };
 }
 
 function resolveGivemotionCliPath(workspaceDir: string): string {
@@ -82,7 +122,7 @@ function resolveGivemotionCliPath(workspaceDir: string): string {
 }
 
 function writeJsonLine(payload: Record<string, unknown>): void {
-  process.stdout.write(`${JSON.stringify(payload)}\n`);
+  process.stdout.write(`${JSON.stringify({ version: WORKER_PROTOCOL_VERSION, ...payload })}\n`);
 }
 
 async function loadProjectFromDbOrDisk(
@@ -117,15 +157,14 @@ async function loadProjectFromDbOrDisk(
   let manifest: z.infer<typeof DiskManifestSchema>;
   try {
     manifest = DiskManifestSchema.parse(JSON.parse(text));
+    for (const scene of manifest.scenes) {
+      assertSafeId(scene.id, 'scene');
+      if (scene.projectId !== safeProjectId) {
+        throw new Error(`scene ${scene.id} projectId mismatch`);
+      }
+    }
   } catch (err: unknown) {
     throw new Error(`Invalid project manifest for ${safeProjectId}: ${toErrorMessage(err)}`);
-  }
-
-  for (const scene of manifest.scenes) {
-    assertSafeId(scene.id, 'scene');
-    if (scene.projectId !== safeProjectId) {
-      throw new Error(`Invalid project manifest for ${safeProjectId}: scene ${scene.id} projectId mismatch`);
-    }
   }
 
   return {
@@ -162,6 +201,8 @@ export async function runWorker(workspaceDir: string): Promise<void> {
   const adapter = new GivemotionAdapter(workspaceDir, resolveGivemotionCliPath(workspaceDir));
   const inFlight = new Set<Promise<void>>();
   const activeRenders = new Set<string>();
+  const preparingRenders = new Set<string>();
+  const cancelledProjects = new Set<string>();
   let draining = false;
   let aborting = false;
   let abortPromise: Promise<void> | null = null;
@@ -214,7 +255,10 @@ export async function runWorker(workspaceDir: string): Promise<void> {
         for (const scene of project.scenes) {
           assertSafeId(scene.id, 'scene');
           if (scene.projectId !== safeProjectId) {
-            throw new Error(`Scene ${scene.id} projectId mismatch: expected ${safeProjectId}`);
+            throw new WorkerRpcError(
+              'INVALID_PARAMS',
+              `Scene ${scene.id} projectId mismatch: expected ${safeProjectId}`
+            );
           }
         }
         const updated: Project = {
@@ -230,12 +274,10 @@ export async function runWorker(workspaceDir: string): Promise<void> {
       case 'preview_project': {
         const { projectId, sceneId } = PreviewProjectParamsSchema.parse(params);
         const safeProjectId = assertSafeId(projectId, 'project');
+        const safeSceneId = sceneId !== undefined ? assertSafeId(sceneId, 'scene') : undefined;
         const project = await loadProjectFromDbOrDisk(db, workspaceDir, safeProjectId);
-        if (sceneId !== undefined) {
-          const safeSceneId = assertSafeId(sceneId, 'scene');
-          if (!project.scenes.some((s) => s.id === safeSceneId)) {
-            throw new Error(`Scene ${safeSceneId} not found in project ${safeProjectId}`);
-          }
+        if (safeSceneId !== undefined && !project.scenes.some((s) => s.id === safeSceneId)) {
+          throw new Error(`Scene ${safeSceneId} not found in project ${safeProjectId}`);
         }
         await ensureProjectHtml(project);
         const preview = await adapter.previewProject(safeProjectId);
@@ -248,10 +290,20 @@ export async function runWorker(workspaceDir: string): Promise<void> {
         if (activeRenders.has(safeProjectId)) {
           throw new Error(`Render already in progress for project ${safeProjectId}`);
         }
+        cancelledProjects.delete(safeProjectId);
         activeRenders.add(safeProjectId);
+        preparingRenders.add(safeProjectId);
         try {
-          const project = await loadProjectFromDbOrDisk(db, workspaceDir, safeProjectId);
-          await ensureProjectHtml(project);
+          let project: Project;
+          try {
+            project = await loadProjectFromDbOrDisk(db, workspaceDir, safeProjectId);
+            await ensureProjectHtml(project);
+          } finally {
+            preparingRenders.delete(safeProjectId);
+          }
+          if (cancelledProjects.has(safeProjectId)) {
+            throw new WorkerRpcError('RENDER_CANCELLED', 'Render cancelled by user');
+          }
 
           let currentJobId = '';
           const job = await adapter.render(safeProjectId, (ev) => {
@@ -287,6 +339,9 @@ export async function runWorker(workspaceDir: string): Promise<void> {
           db.saveRenderJob(job);
 
           if (status.status === 'failed') {
+            if (cancelledProjects.has(safeProjectId)) {
+              throw new WorkerRpcError('RENDER_CANCELLED', status.error || 'Render cancelled by user');
+            }
             throw new Error(status.error || 'Render failed');
           }
 
@@ -300,11 +355,26 @@ export async function runWorker(workspaceDir: string): Promise<void> {
           return { renderJob: job, videoPath };
         } finally {
           activeRenders.delete(safeProjectId);
+          cancelledProjects.delete(safeProjectId);
         }
       }
 
+      case 'cancel_render': {
+        const { projectId } = ProjectIdParamsSchema.parse(params);
+        const safeProjectId = assertSafeId(projectId, 'project');
+        if (preparingRenders.has(safeProjectId)) {
+          cancelledProjects.add(safeProjectId);
+          return { projectId: safeProjectId, cancelled: true };
+        }
+        const cancelled = await adapter.cancelRender(safeProjectId);
+        if (cancelled) {
+          cancelledProjects.add(safeProjectId);
+        }
+        return { projectId: safeProjectId, cancelled };
+      }
+
       default:
-        throw new Error(`Unknown worker method: ${method}`);
+        throw new WorkerRpcError('UNKNOWN_METHOD', `Unknown worker method: ${method}`);
     }
   }
 
@@ -350,35 +420,56 @@ export async function runWorker(workspaceDir: string): Promise<void> {
     try {
       rawJson = JSON.parse(line);
     } catch {
-      writeJsonLine({ ok: false, error: 'Malformed JSON request' });
+      writeJsonLine({ ok: false, code: 'MALFORMED_JSON', error: 'Malformed JSON request' });
+      return;
+    }
+
+    const maybeObj =
+      typeof rawJson === 'object' && rawJson !== null && !Array.isArray(rawJson)
+        ? (rawJson as Record<string, unknown>)
+        : null;
+    const maybeId =
+      maybeObj &&
+      ((typeof maybeObj.id === 'string' && maybeObj.id.length > 0) ||
+        (typeof maybeObj.id === 'number' && Number.isInteger(maybeObj.id)))
+        ? (maybeObj.id as string | number)
+        : undefined;
+
+    if (
+      maybeObj &&
+      'version' in maybeObj &&
+      maybeObj.version !== undefined &&
+      maybeObj.version !== WORKER_PROTOCOL_VERSION
+    ) {
+      writeJsonLine({
+        ...(maybeId !== undefined ? { id: maybeId } : {}),
+        ok: false,
+        code: 'UNSUPPORTED_PROTOCOL_VERSION',
+        error: `Unsupported worker protocol version: ${String(maybeObj.version)}`,
+      });
       return;
     }
 
     const reqParsed = WorkerRequestSchema.safeParse(rawJson);
     if (!reqParsed.success) {
-      const maybeId =
-        typeof rawJson === 'object' &&
-        rawJson !== null &&
-        'id' in rawJson &&
-        (typeof (rawJson as { id: unknown }).id === 'string' ||
-          typeof (rawJson as { id: unknown }).id === 'number')
-          ? (rawJson as { id: string | number }).id
-          : undefined;
       writeJsonLine({
         ...(maybeId !== undefined ? { id: maybeId } : {}),
         ok: false,
+        code: 'INVALID_REQUEST',
         error: `Invalid request envelope: ${reqParsed.error.issues.map((i) => i.message).join('; ')}`,
       });
       return;
     }
 
     const { id, method, params } = reqParsed.data;
+
     const task = (async () => {
       try {
         const result = await dispatch(method, params);
         writeJsonLine({ id, ok: true, result });
       } catch (err: unknown) {
-        writeJsonLine({ id, ok: false, error: toErrorMessage(err) });
+        const { code, message } = classifyWorkerError(err);
+        writeJsonLine({ id, ok: false, code, error: message });
       }
     })();
 

@@ -67,6 +67,11 @@ export interface AnimationEngineAdapter {
   exportVideo(jobId: string): Promise<string>;
 
   /**
+   * Cancel an active render for the given project if running
+   */
+  cancelRender?(projectId: string): Promise<boolean>;
+
+  /**
    * Release any child processes or handles owned by the adapter
    */
   dispose?(): Promise<void>;

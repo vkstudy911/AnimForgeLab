@@ -1,7 +1,11 @@
 pub mod doctor;
+pub mod worker_bridge;
 
 use std::ffi::OsStr;
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
+use tauri::{Emitter, Manager};
+use worker_bridge::{WorkerBridge, RENDER_PROGRESS_EVENT};
 
 #[derive(Debug, Clone)]
 pub struct AppPaths {
@@ -68,11 +72,41 @@ pub fn resolve_workspace_root() -> Result<PathBuf, String> {
 pub fn run() {
     let workspace_root =
         resolve_workspace_root().expect("AnimForgeLab workspace root must be resolvable");
-    tauri::Builder::default()
+    let worker_root = workspace_root.clone();
+
+    let app = tauri::Builder::default()
         .manage(AppPaths { workspace_root })
-        .invoke_handler(tauri::generate_handler![doctor::run_doctor])
-        .run(tauri::generate_context!())
-        .expect("error while running AnimForge Studio");
+        .setup(move |app| {
+            let app_handle = app.handle().clone();
+            let bridge = Arc::new(WorkerBridge::for_workspace(
+                &worker_root,
+                Arc::new(move |payload| {
+                    let _ = app_handle.emit(RENDER_PROGRESS_EVENT, &payload);
+                }),
+            ));
+            app.manage(bridge);
+            Ok(())
+        })
+        .invoke_handler(tauri::generate_handler![
+            doctor::run_doctor,
+            worker_bridge::project_list,
+            worker_bridge::project_create_from_prompt,
+            worker_bridge::project_load,
+            worker_bridge::project_save,
+            worker_bridge::project_preview,
+            worker_bridge::project_render,
+            worker_bridge::project_cancel_render,
+        ])
+        .build(tauri::generate_context!())
+        .expect("error while building AnimForge Studio");
+
+    app.run(|app_handle, event| {
+        if let tauri::RunEvent::Exit = event {
+            if let Some(bridge) = app_handle.try_state::<Arc<WorkerBridge>>() {
+                bridge.shutdown();
+            }
+        }
+    });
 }
 
 #[cfg(test)]

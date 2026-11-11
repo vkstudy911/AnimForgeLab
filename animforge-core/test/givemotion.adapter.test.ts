@@ -139,6 +139,7 @@ test('GivemotionAdapter uses shell-free arg arrays, writes givemotion.json & ind
   let activeFake: ReturnType<typeof createFakeSpawn> | null = null;
   let checkShouldFailQa = false;
   let doctorExitCode = 0;
+  let doctorStdout = 'node v24.19.0\nchrome /opt/chrome\nffmpeg 9.0.1 encoders: libx264\n';
   let doctorStderr = '';
 
   const fakeRunner: ProcessRunner = {
@@ -147,7 +148,7 @@ test('GivemotionAdapter uses shell-free arg arrays, writes givemotion.json & ind
       const subcmd = args[1];
       if (subcmd === 'doctor') {
         return {
-          stdout: 'node v24.19.0\nchrome /opt/chrome\nffmpeg 9.0.1 encoders: libx264\n',
+          stdout: doctorStdout,
           stderr: doctorStderr,
           exitCode: doctorExitCode,
         };
@@ -195,10 +196,27 @@ test('GivemotionAdapter uses shell-free arg arrays, writes givemotion.json & ind
   try {
     const cliPath = path.join(workspaceTrailing, 'engines/givemotion/src/cli.js');
     const adapter = new GivemotionAdapter(workspaceTrailing, cliPath, fakeRunner);
+    // 1. Missing Chrome exits 1 with report -> getDoctorInfo parses chromeOk=false, initialize rejects
     doctorExitCode = 1;
+    doctorStdout = 'node v24.19.0\nchrome not found -> run npx givemotion install\nffmpeg 9.0.1 encoders: libx264\n';
+    doctorStderr = '';
+    const partialReport = await adapter.getDoctorInfo();
+    assert.equal(partialReport.node, 'v24.19.0');
+    assert.equal(partialReport.chromeOk, false);
+    await assert.rejects(() => adapter.initialize(), /missing prerequisites/i);
+
+    // 2. Binary crash exits 1 with no report or partial report + stderr -> getDoctorInfo & initialize fail
+    doctorStdout = '';
     doctorStderr = 'doctor binary crashed';
     await assert.rejects(() => adapter.initialize(), /exit 1.*doctor binary crashed/);
+
+    doctorStdout = 'node v24.19.0\n';
+    doctorStderr = 'Error loading browser check';
+    await assert.rejects(() => adapter.getDoctorInfo(), /exit 1.*Error loading browser check/);
+
+    // 3. Healthy doctor passes
     doctorExitCode = 0;
+    doctorStdout = 'node v24.19.0\nchrome /opt/chrome\nffmpeg 9.0.1 encoders: libx264\n';
     doctorStderr = '';
     await adapter.initialize();
 

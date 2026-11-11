@@ -318,6 +318,25 @@ test('AnimForgeDatabase validates stored rows via Zod schemas without trusting r
     const reopened = new AnimForgeDatabase(dbPath);
     assert.throws(() => reopened.getProject('proj_corrupt'));
     assert.throws(() => reopened.getRenderJob('job_corrupt'));
+    reopened.saveProject({
+      id: 'proj_valid_row',
+      name: 'Valid',
+      prompt: 'Valid prompt',
+      width: 1280,
+      height: 720,
+      fps: 30,
+      preferredEngine: 'givemotion',
+      status: 'created',
+      characters: [],
+      assets: [],
+      scenes: [],
+      createdAt: now,
+      updatedAt: now,
+    });
+    assert.deepEqual(
+      reopened.listProjects().map((p) => p.id),
+      ['proj_valid_row']
+    );
     reopened.close();
   } finally {
     await fs.rm(tmpDir, { recursive: true, force: true });

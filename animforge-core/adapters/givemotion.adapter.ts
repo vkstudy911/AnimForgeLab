@@ -20,6 +20,7 @@ import {
 import {
   Character,
   CharacterSchema,
+  Project,
   ProjectConfig,
   ProjectConfigSchema,
   RenderJob,
@@ -129,12 +130,16 @@ export class GivemotionAdapter implements AnimationEngineAdapter {
 
   async getDoctorInfo(): Promise<GiveMotionDoctorReport> {
     const result = await this.runner.execFile(process.execPath, [this.cliPath, 'doctor']);
-    if (result.exitCode !== 0) {
+    const report = parseDoctorStdout(result.stdout);
+    if (
+      result.exitCode !== 0 &&
+      (result.stderr.trim().length > 0 || !report.node || !report.chrome || !report.ffmpeg)
+    ) {
       throw new Error(
         `Givemotion doctor failed (exit ${result.exitCode}): ${result.stderr.trim() || result.stdout.trim()}`
       );
     }
-    return parseDoctorStdout(result.stdout);
+    return report;
   }
 
   async initialize(): Promise<void> {
@@ -162,6 +167,12 @@ export class GivemotionAdapter implements AnimationEngineAdapter {
         characters: parsed.characters,
         scenes: parsed.scenes,
       };
+      for (const s of hydrated.scenes) {
+        assertSafeId(s.id, 'scene');
+        if (s.projectId !== projectId) {
+          throw new Error(`Scene ${s.id} projectId mismatch`);
+        }
+      }
       this.projects.set(projectId, hydrated);
       for (const s of hydrated.scenes) {
         this.sceneToProject.set(s.id, projectId);
@@ -214,6 +225,38 @@ export class GivemotionAdapter implements AnimationEngineAdapter {
 
     await this.writeProjectFiles(projectDir, state);
     return safeProjectId;
+  }
+
+  async saveProjectState(project: Project): Promise<void> {
+    const safeProjectId = assertSafeId(project.id, 'project');
+    const projectDir = resolveProjectDir(this.workspaceDir, safeProjectId);
+    await fs.mkdir(projectDir, { recursive: true });
+
+    for (const [sceneId, ownerProjectId] of this.sceneToProject.entries()) {
+      if (ownerProjectId === safeProjectId) {
+        this.sceneToProject.delete(sceneId);
+      }
+    }
+
+    const state: StoredProjectState = {
+      projectId: safeProjectId,
+      config: {
+        name: project.name,
+        prompt: project.prompt,
+        width: project.width,
+        height: project.height,
+        fps: project.fps,
+        preferredEngine: project.preferredEngine,
+      },
+      characters: [...project.characters],
+      scenes: project.scenes.map((scene) => {
+        const safeSceneId = assertSafeId(scene.id, 'scene');
+        this.sceneToProject.set(safeSceneId, safeProjectId);
+        return { ...scene, id: safeSceneId, projectId: safeProjectId };
+      }),
+    };
+    this.projects.set(safeProjectId, state);
+    await this.writeProjectFiles(projectDir, state);
   }
 
   async createScene(config: SceneConfig): Promise<string> {
@@ -385,6 +428,7 @@ export class GivemotionAdapter implements AnimationEngineAdapter {
           job.progress = pct;
           if (ev.phase === 'done') doneEmitted = true;
           onProgress?.({
+            jobId,
             phase: ev.phase,
             progress: pct,
             done: ev.done,
@@ -434,7 +478,7 @@ export class GivemotionAdapter implements AnimationEngineAdapter {
         job.progress = 100;
         job.finishedAt = new Date().toISOString();
         if (!doneEmitted) {
-          onProgress?.({ phase: 'done', progress: 100 });
+          onProgress?.({ jobId, phase: 'done', progress: 100 });
         }
         return;
       }

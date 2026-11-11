@@ -9,6 +9,7 @@ import {
 export type SceneConfig = Omit<Scene, 'id'> & { id?: string };
 
 export interface RenderProgressUpdate {
+  jobId?: string;
   phase: 'open' | 'frames' | 'encode' | 'done';
   progress: number;
   done?: number;

@@ -32,46 +32,24 @@ export class AnimForgePipeline {
     this.db = db || new AnimForgeDatabase();
   }
 
-  /**
-   * Run the complete animation pipeline from human natural language idea to final video
-   */
-  async execute(
+  async planProject(
     config: ProjectConfig,
-    adapter: AnimationEngineAdapter,
-    onProgress?: PipelineProgressCallback,
-    options?: PipelineExecutionOptions
-  ): Promise<{ project: Project; renderJob: RenderJob; videoPath: string }> {
-    const notify = (stage: string, message: string, data?: unknown) => {
-      if (onProgress) onProgress(stage, message, data);
-    };
+    options?: { projectId?: string }
+  ): Promise<Project> {
+    const projectId =
+      options?.projectId !== undefined
+        ? assertSafeId(options.projectId, 'project')
+        : createCanonicalProjectId();
 
-    const projectId = options?.projectId !== undefined
-      ? assertSafeId(options.projectId, 'project')
-      : createCanonicalProjectId();
-    const pollIntervalMs = options?.pollIntervalMs ?? 1000;
-
-    // Stage 1: Initialize Engine Adapter
-    notify('INIT_ENGINE', `Initializing engine adapter: ${adapter.name}`);
-    await adapter.initialize();
-
-    // Stage 2: Human Idea -> AI Story Director
-    notify('STORY_DIRECTOR', `Converting prompt to storyboard: "${config.prompt}"`);
     const storyboard = await this.storyDirector.createStoryboard(projectId, config.prompt);
-
-    // Stage 3: Character & Asset Preparation
-    notify('CHARACTER_MANAGER', 'Generating character layer hierarchy and rigging parameters');
     const character = await this.characterManager.createCharacter(
       'Pip',
       'Cute little green cartoon alien/creature with expressive big eyes'
     );
-
-    // Stage 4: Scene Planner & Animation Choreography
-    notify('SCENE_PLANNER', `Planning scenes and motion tracks (${storyboard.beats.length} beats)`);
     const scenes = await this.scenePlanner.planScenes(projectId, storyboard, character);
 
-    // Stage 5: Project Assembly
     const now = new Date().toISOString();
-    const project: Project = {
+    return {
       id: projectId,
       name: config.name,
       prompt: config.prompt,
@@ -87,6 +65,39 @@ export class AnimForgePipeline {
       createdAt: now,
       updatedAt: now,
     };
+  }
+
+  /**
+   * Run the complete animation pipeline from human natural language idea to final video
+   */
+  async execute(
+    config: ProjectConfig,
+    adapter: AnimationEngineAdapter,
+    onProgress?: PipelineProgressCallback,
+    options?: PipelineExecutionOptions
+  ): Promise<{ project: Project; renderJob: RenderJob; videoPath: string }> {
+    const notify = (stage: string, message: string, data?: unknown) => {
+      if (onProgress) onProgress(stage, message, data);
+    };
+
+    const pollIntervalMs = options?.pollIntervalMs ?? 1000;
+
+    // Stage 1: Initialize Engine Adapter
+    notify('INIT_ENGINE', `Initializing engine adapter: ${adapter.name}`);
+    await adapter.initialize();
+
+    // Stages 2–5: Storyboard, Character, Scenes & Project Assembly
+    notify('STORY_DIRECTOR', `Converting prompt to storyboard: "${config.prompt}"`);
+    const project = await this.planProject(config, { projectId: options?.projectId });
+    const projectId = project.id;
+    const character = project.characters[0];
+    const scenes = project.scenes;
+
+    notify('CHARACTER_MANAGER', 'Generated character layer hierarchy and rigging parameters');
+    notify(
+      'SCENE_PLANNER',
+      `Planned ${scenes.length} scenes (${project.storyboard?.beats.length ?? 0} beats)`
+    );
     this.db.saveProject(project);
 
     // Stage 6: Engine Project & Scene Instantiation

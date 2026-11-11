@@ -11,6 +11,17 @@ import {
 
 type SqlParam = string | number | null;
 
+export interface ProjectSummary {
+  id: string;
+  name: string;
+  prompt: string;
+  status: Project['status'];
+  width: number;
+  height: number;
+  fps: number;
+  updatedAt: string;
+}
+
 type SqliteDatabase = {
   exec(sql: string): void;
   prepare(sql: string): {
@@ -23,6 +34,7 @@ type SqliteDatabase = {
 
 export class AnimForgeDatabase {
   private db: SqliteDatabase;
+  private closed = false;
 
   constructor(dbPath?: string) {
     const resolvedPath = dbPath || ':memory:';
@@ -89,6 +101,31 @@ export class AnimForgeDatabase {
     return ProjectSchema.parse(JSON.parse(row.data));
   }
 
+  listProjects(): ProjectSummary[] {
+    const stmt = this.db.prepare('SELECT data FROM projects ORDER BY updated_at DESC');
+    const rows = stmt.all();
+    const summaries: ProjectSummary[] = [];
+    for (const row of rows) {
+      if (typeof row.data !== 'string') continue;
+      try {
+        const p = ProjectSchema.parse(JSON.parse(row.data));
+        summaries.push({
+          id: p.id,
+          name: p.name,
+          prompt: p.prompt,
+          status: p.status,
+          width: p.width,
+          height: p.height,
+          fps: p.fps,
+          updatedAt: p.updatedAt,
+        });
+      } catch {
+        continue;
+      }
+    }
+    return summaries;
+  }
+
   saveRenderJob(job: RenderJob): void {
     const valid = RenderJobSchema.parse(job);
     const stmt = this.db.prepare(`
@@ -132,6 +169,8 @@ export class AnimForgeDatabase {
   }
 
   close(): void {
+    if (this.closed) return;
+    this.closed = true;
     this.db.close();
   }
 }

@@ -2,7 +2,7 @@
 
 **Last Updated:** 2026-11-11  
 **Active Milestone:** Milestone 1 — Core Foundation  
-**Current Task:** `M1-T07` (Workstream D3 — NDJSON Stdio Worker Process `src/worker.ts`)
+**Current Task:** `M1-T08` (Workstream E — Real Chrome + FFmpeg + `ffprobe` MP4 Integration Test)
 
 ---
 
@@ -24,9 +24,9 @@
 | `M1-T03` | B — Path Foundation | `animforge-core/utils/paths.ts` path jail & trailing-space safety + unit tests | `DONE` | Clean (`e0e33f15`: Ship) | `da99008` | `npm run typecheck && npm test`: `9/9` pass (spaces, trailing spaces, dangling/chained/projects symlinks) |
 | `M1-T04` | C — Project Identity | Canonical `projectId` contract across pipeline & all 3 adapters + regression tests | `DONE` | Clean (`b806c4ac` -> `44cdd762`: Ship) | `84304c5` | `tsc --noEmit` exit `0`; `12/12` tests pass (deterministic `projectId`, mismatched ID rejects, `$'` HTML safety, Zod DB fail check, jail checks) |
 | `M1-T05` | D1 — Scene Compiler | Pure `Scene` + `Character` -> GiveMotion HTML/SVG compiler + unit tests | `DONE` | Clean (`cc34631f` -> `6f277f27`: Ship) | `feat/milestone-1-core` | `tsc --noEmit` exit `0`; `15/15` tests pass (HTML/SVG keyframes, camera/transition tokens, action allowlist, palette & zoom-out safety) |
-| `M1-T06` | D2 — Safe Process Exec | Replace `execAsync` with `spawn`/`execFile` (`shell: false`), `--progress json` NDJSON, workers=1 | `DONE` | Clean (`41eea9c1` -> `d61df876`: Ship) | `feat/milestone-1-core` | `npm run typecheck && npm test`: `20/20` pass (arg arrays, `stdout` 100KB drain, Windows `npx-cli.js`, chunked NDJSON, `check` exit-1 QA recovery, disk hydration, `dispose`) |
-| `M1-T07` | D3 — Stdio Worker | `animforge-core/src/worker.ts` JSON stdio IPC bridge + lifecycle tests | `IN_PROGRESS` | Pending | — | — |
-| `M1-T08` | E — Real MP4 Export | Real GiveMotion HTML -> Chrome -> FFmpeg MP4 render + `ffprobe` verification | `PENDING` | Pending | — | *(Requires host/unsandboxed run if Chrome blocked in sandbox)* |
+| `M1-T06` | D2 — Safe Process Exec | Replace `execAsync` with `spawn`/`execFile` (`shell: false`), `--progress json` NDJSON, workers=1 | `DONE` | Clean (`41eea9c1` -> `d61df876`: Ship) | `8be6904` | `npm run typecheck && npm test`: `20/20` pass (arg arrays, `stdout` 100KB drain, Windows `npx-cli.js`, chunked NDJSON, `check` exit-1 QA recovery, disk hydration, `dispose`) |
+| `M1-T07` | D3 — Stdio Worker | `animforge-core/src/worker.ts` JSON stdio IPC bridge + lifecycle tests | `DONE` | Clean (`7af33986`: Hold -> Ship) | `feat/milestone-1-core` | `npm run typecheck && npm test`: `22/22` pass (NDJSON RPC, concurrent dispatch, `jobId` progress stream, `stdin` EOF mid-render drain, `SIGTERM` child kill, SQLite+disk fallback, `../` jail) |
+| `M1-T08` | E — Real MP4 Export | Real GiveMotion HTML -> Chrome -> FFmpeg MP4 render + `ffprobe` verification | `IN_PROGRESS` | Pending | — | *(Requires host/unsandboxed run if Chrome blocked in sandbox)* |
 | `M1-T09` | F — Desktop Shell | Install `rustup` (with approval) & scaffold Tauri 2 + React 18 + Vite app | `BLOCKED` | Pending | — | Blocked: `rustup`/`rustc`/`cargo` absent on host (`exit 127`) |
 | `M1-T10` | G — Native Doctor | Rust-backed PASS/WARN/FAIL checks across OS/Rust/Node/FFmpeg/3 engines/dirs | `BLOCKED` | Pending | — | Depends on `M1-T09` |
 | `M1-T11` | H — `<gm-player>` Preview | Worker bridge, jailed `127.0.0.1` HTTP server, real `<gm-player>` UI stage | `BLOCKED` | Pending | — | Depends on `M1-T10` |

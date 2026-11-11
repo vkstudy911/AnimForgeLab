@@ -1,0 +1,429 @@
+import {
+  CameraMovement,
+  Character,
+  CharacterAction,
+  ProjectConfig,
+  Scene,
+} from '../schemas/index.js';
+import { assertSafeId, escapeHtml } from '../utils/paths.js';
+
+export interface CompileProjectInput {
+  projectId: string;
+  config: ProjectConfig;
+  scenes: Scene[];
+  characters: Character[];
+}
+
+const DEFAULT_PALETTE = ['#22c55e', '#16a34a', '#86efac', '#15803d', '#ffffff'] as const;
+const SAFE_HEX_COLOR = /^#[0-9a-fA-F]{3,8}$/;
+const SAFE_ACTIONS = new Set(['idle', 'walk', 'run', 'wave', 'smile', 'blink', 'look_around']);
+
+function safeColor(candidate: string | undefined, fallback: string): string {
+  return candidate && SAFE_HEX_COLOR.test(candidate) ? candidate : fallback;
+}
+
+function round2(n: number): number {
+  return Math.round(n * 100) / 100;
+}
+
+function safePositive(value: number, fallback: number): number {
+  return Number.isFinite(value) && value > 0 ? round2(value) : fallback;
+}
+
+function safeNonNegative(value: number, fallback: number): number {
+  return Number.isFinite(value) && value >= 0 ? round2(value) : fallback;
+}
+
+export function mapCameraAttribute(move: CameraMovement | undefined): string | null {
+  if (!move || move.type === 'static') return null;
+
+  switch (move.type) {
+    case 'zoom': {
+      const start = Number.isFinite(move.startZoom) ? move.startZoom : 1;
+      const end = Number.isFinite(move.endZoom) ? move.endZoom : 1;
+      if (start > end + 0.01) {
+        const pullScale = round2(Math.min(1.35, Math.max(1.02, start)));
+        return `pull ${pullScale}`;
+      }
+      const target = end > 1.01 ? end : 1.15;
+      const pushScale = round2(Math.min(1.35, Math.max(1.02, target)));
+      return `push ${pushScale}`;
+    }
+    case 'push':
+    case 'dolly': {
+      const target = move.endZoom > 1.01 ? move.endZoom : 1.15;
+      const scale = round2(Math.min(1.35, Math.max(1.02, target)));
+      return `push ${scale}`;
+    }
+    case 'pull': {
+      const start = move.startZoom > 1.01 ? move.startZoom : 1.15;
+      const scale = round2(Math.min(1.35, Math.max(1.02, start)));
+      return `pull ${scale}`;
+    }
+    case 'pan': {
+      const dx = (Number.isFinite(move.endX) ? move.endX : 0) - (Number.isFinite(move.startX) ? move.startX : 0);
+      const dy = (Number.isFinite(move.endY) ? move.endY : 0) - (Number.isFinite(move.startY) ? move.startY : 0);
+      const dir =
+        Math.abs(dx) >= Math.abs(dy)
+          ? dx >= 0
+            ? 'move-right'
+            : 'move-left'
+          : dy >= 0
+            ? 'move-down'
+            : 'move-up';
+      const dist = Math.round(Math.min(220, Math.max(20, Math.max(Math.abs(dx), Math.abs(dy)) || 60)));
+      return `${dir} ${dist}`;
+    }
+    case 'shake':
+      return 'shake 12';
+    default:
+      return null;
+  }
+}
+
+export function mapTransitionAttribute(transition: Scene['transition'] | undefined): string | null {
+  if (!transition || transition.type === 'none') return null;
+  const dur = safePositive(transition.duration, 0.5);
+  switch (transition.type) {
+    case 'fade':
+    case 'dissolve':
+      return `fade ${dur}`;
+    case 'wipe':
+      return `wipe-left ${dur}`;
+    case 'slide':
+      return `slide-left ${dur}`;
+    default:
+      return null;
+  }
+}
+
+function buildActionStyles(actions: CharacterAction[]): {
+  classes: string[];
+  cssVars: string;
+} {
+  if (actions.length === 0) {
+    return { classes: ['af-actor', 'af-actor--idle'], cssVars: '' };
+  }
+
+  const uniqueActions = new Set<string>();
+  const vars: string[] = [];
+
+  for (const action of actions) {
+    if (!SAFE_ACTIONS.has(action.name)) continue;
+    uniqueActions.add(`af-actor--${action.name}`);
+    const delay = safeNonNegative(action.startTime, 0);
+    const dur = safePositive(action.duration, 1);
+    vars.push(`--af-${action.name}-delay:${delay}s`, `--af-${action.name}-dur:${dur}s`);
+  }
+
+  if (uniqueActions.size === 0) {
+    uniqueActions.add('af-actor--idle');
+  }
+
+  return {
+    classes: ['af-actor', ...uniqueActions],
+    cssVars: vars.join(';'),
+  };
+}
+
+export function buildCharacterSvg(
+  character: Character | undefined,
+  actions: CharacterAction[] = [],
+  hasPortalProp = false,
+  gradientSuffix = '0'
+): string {
+  const palette = character?.colorPalette ?? [];
+  const primary = safeColor(palette[0], DEFAULT_PALETTE[0]);
+  const secondary = safeColor(palette[1], DEFAULT_PALETTE[1]);
+  const highlight = safeColor(palette[2], DEFAULT_PALETTE[2]);
+  const shadow = safeColor(palette[3], DEFAULT_PALETTE[3]);
+  const eyeSclera = safeColor(palette[4], DEFAULT_PALETTE[4]);
+
+  const { classes, cssVars } = buildActionStyles(actions);
+  const classList = classes.join(' ');
+  const styleAttr = cssVars ? ` style="${cssVars}"` : '';
+  const hasSmile = actions.some((a) => a.name === 'smile');
+  const mouthPath = hasSmile
+    ? 'M 152 135 Q 170 154 188 135'
+    : 'M 156 138 Q 170 146 184 138';
+
+  const gradId = `af-door-glow-${assertSafeId(gradientSuffix, 'scene')}`;
+  const portalMarkup = hasPortalProp
+    ? `<g class="af-prop-door" aria-hidden="true">
+        <defs>
+          <radialGradient id="${gradId}" cx="50%" cy="50%" r="55%">
+            <stop offset="0%" stop-color="#fef08a" stop-opacity="0.95"/>
+            <stop offset="55%" stop-color="#f59e0b" stop-opacity="0.45"/>
+            <stop offset="100%" stop-color="#f59e0b" stop-opacity="0"/>
+          </radialGradient>
+        </defs>
+        <ellipse cx="292" cy="180" rx="68" ry="96" fill="url(#${gradId})"/>
+        <rect x="256" y="102" width="72" height="148" rx="36" fill="#fde047" stroke="#f59e0b" stroke-width="5"/>
+        <rect x="266" y="114" width="52" height="128" rx="26" fill="#fef9c3"/>
+      </g>`
+    : '';
+
+  const offsetX = hasPortalProp ? -36 : 0;
+
+  return `<svg class="${classList}"${styleAttr} viewBox="0 0 360 300" width="360" height="300" role="img" aria-hidden="true">
+  ${portalMarkup}
+  <g transform="translate(${offsetX}, 0)">
+    <ellipse cx="170" cy="268" rx="58" ry="12" fill="rgba(2, 6, 23, 0.55)"/>
+    <g class="af-body-root">
+      <g class="af-part af-leg-l" data-part="leg_left">
+        <rect x="136" y="212" width="24" height="50" rx="12" fill="${shadow}"/>
+        <ellipse cx="146" cy="260" rx="16" ry="9" fill="${secondary}"/>
+      </g>
+      <g class="af-part af-leg-r" data-part="leg_right">
+        <rect x="180" y="212" width="24" height="50" rx="12" fill="${shadow}"/>
+        <ellipse cx="194" cy="260" rx="16" ry="9" fill="${secondary}"/>
+      </g>
+      <g class="af-part af-arm-l" data-part="arm_left">
+        <rect x="92" y="156" width="24" height="58" rx="12" fill="${secondary}"/>
+        <circle cx="104" cy="212" r="11" fill="${highlight}"/>
+      </g>
+      <g class="af-part af-torso" data-part="torso">
+        <rect x="118" y="144" width="104" height="82" rx="42" fill="${primary}"/>
+        <ellipse cx="170" cy="188" rx="30" ry="26" fill="${highlight}" opacity="0.45"/>
+      </g>
+      <g class="af-part af-head" data-part="head">
+        <line x1="170" y1="62" x2="170" y2="38" stroke="${secondary}" stroke-width="6" stroke-linecap="round"/>
+        <circle cx="170" cy="34" r="9" fill="${highlight}"/>
+        <ellipse cx="170" cy="112" rx="58" ry="50" fill="${primary}"/>
+        <ellipse cx="148" cy="96" rx="18" ry="10" fill="${highlight}" opacity="0.35"/>
+        <g class="af-part af-eye af-eye-l" data-part="eye_left">
+          <ellipse cx="148" cy="108" rx="13" ry="15" fill="${eyeSclera}"/>
+          <circle cx="150" cy="109" r="7" fill="#0f172a"/>
+          <circle cx="153" cy="105" r="2.8" fill="#ffffff"/>
+        </g>
+        <g class="af-part af-eye af-eye-r" data-part="eye_right">
+          <ellipse cx="192" cy="108" rx="13" ry="15" fill="${eyeSclera}"/>
+          <circle cx="190" cy="109" r="7" fill="#0f172a"/>
+          <circle cx="193" cy="105" r="2.8" fill="#ffffff"/>
+        </g>
+        <path class="af-part af-mouth" data-part="mouth" d="${mouthPath}" fill="none" stroke="#0f172a" stroke-width="5" stroke-linecap="round"/>
+      </g>
+      <g class="af-part af-arm-r" data-part="arm_right">
+        <rect x="224" y="156" width="24" height="58" rx="12" fill="${secondary}"/>
+        <circle cx="236" cy="212" r="11" fill="${highlight}"/>
+      </g>
+    </g>
+  </g>
+</svg>`;
+}
+
+const COMPILER_STYLES = `
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0;
+    padding: 0;
+    background: #0b0f17;
+    color: #f8fafc;
+    font-family: Inter, system-ui, -apple-system, sans-serif;
+    overflow: hidden;
+  }
+  .scene {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: space-between;
+    padding: calc(var(--px, 1px) * 96) calc(var(--px, 1px) * 120);
+    gap: calc(var(--px, 1px) * 28);
+    background: radial-gradient(circle at 50% 45%, #16223b 0%, #0b0f17 75%);
+  }
+  .scene-header {
+    max-width: calc(var(--px, 1px) * 1280);
+    text-align: center;
+    z-index: 2;
+  }
+  .scene-title {
+    margin: 0 0 calc(var(--px, 1px) * 14) 0;
+    font-size: calc(var(--px, 1px) * 58);
+    line-height: 1.15;
+    font-weight: 700;
+    color: #f8fafc;
+    letter-spacing: -0.02em;
+  }
+  .scene-desc {
+    margin: 0;
+    font-size: calc(var(--px, 1px) * 32);
+    line-height: 1.4;
+    color: #cbd5e1;
+  }
+  .scene-stage {
+    flex: 1;
+    width: 100%;
+    min-height: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .af-actor {
+    width: min(360px, 42vw);
+    height: auto;
+    overflow: visible;
+  }
+  .af-body-root, .af-part {
+    transform-box: fill-box;
+  }
+  .af-body-root { transform-origin: 50% 90%; }
+  .af-head { transform-origin: 50% 90%; }
+  .af-arm-l { transform-origin: 60% 18%; }
+  .af-arm-r { transform-origin: 40% 18%; }
+  .af-leg-l, .af-leg-r { transform-origin: 50% 15%; }
+  .af-eye { transform-origin: 50% 50%; }
+  .af-mouth { transform-origin: 50% 50%; }
+
+  .af-actor--idle .af-body-root {
+    animation: af-idle 2.4s ease-in-out infinite;
+  }
+  .af-actor--walk .af-body-root {
+    animation: af-walk-bob 0.55s ease-in-out infinite;
+  }
+  .af-actor--walk .af-leg-l {
+    animation: af-leg-l 0.55s ease-in-out infinite;
+  }
+  .af-actor--walk .af-leg-r {
+    animation: af-leg-r 0.55s ease-in-out infinite;
+  }
+  .af-actor--walk .af-arm-l {
+    animation: af-leg-r 0.55s ease-in-out infinite;
+  }
+  .af-actor--run .af-body-root {
+    animation: af-walk-bob 0.34s ease-in-out infinite;
+  }
+  .af-actor--run .af-leg-l {
+    animation: af-leg-l 0.34s ease-in-out infinite;
+  }
+  .af-actor--run .af-leg-r {
+    animation: af-leg-r 0.34s ease-in-out infinite;
+  }
+  .af-actor--wave .af-arm-r {
+    animation: af-wave 0.75s ease-in-out var(--af-wave-delay, 0.2s) infinite alternate;
+  }
+  .af-actor--blink .af-eye {
+    animation: af-blink 2.8s ease-in-out var(--af-blink-delay, 0.6s) infinite;
+  }
+  .af-actor--look_around .af-head {
+    animation: af-look var(--af-look_around-dur, 1.5s) ease-in-out var(--af-look_around-delay, 0.4s) both;
+  }
+  .af-actor--smile .af-mouth {
+    animation: af-smile 0.6s ease-out var(--af-smile-delay, 0.5s) both;
+  }
+
+  @keyframes af-idle {
+    0%, 100% { transform: translateY(0) scaleY(1); }
+    50% { transform: translateY(-5px) scaleY(1.015); }
+  }
+  @keyframes af-walk-bob {
+    0%, 100% { transform: translateY(0) translateX(-4px); }
+    50% { transform: translateY(-8px) translateX(4px); }
+  }
+  @keyframes af-leg-l {
+    0%, 100% { transform: rotate(-16deg); }
+    50% { transform: rotate(16deg); }
+  }
+  @keyframes af-leg-r {
+    0%, 100% { transform: rotate(16deg); }
+    50% { transform: rotate(-16deg); }
+  }
+  @keyframes af-wave {
+    0% { transform: rotate(-115deg); }
+    100% { transform: rotate(-155deg); }
+  }
+  @keyframes af-blink {
+    0%, 88%, 100% { transform: scaleY(1); }
+    94% { transform: scaleY(0.1); }
+  }
+  @keyframes af-look {
+    0%, 100% { transform: rotate(0deg); }
+    30% { transform: rotate(-8deg) translateX(-4px); }
+    70% { transform: rotate(8deg) translateX(4px); }
+  }
+  @keyframes af-smile {
+    0% { transform: scale(1); }
+    100% { transform: scale(1.18); }
+  }
+`;
+
+function findPrimaryCharacter(scene: Scene, characters: Character[]): Character | undefined {
+  for (const id of scene.characterIds) {
+    const match = characters.find((c) => c.id === id);
+    if (match) return match;
+  }
+  return characters[0];
+}
+
+function renderSceneSection(
+  scene: Scene,
+  index: number,
+  characters: Character[]
+): string {
+  const safeSceneId = assertSafeId(scene.id, 'scene');
+  const duration = safePositive(scene.duration, 2);
+  const camParts = scene.timeline.cameraMoves
+    .map(mapCameraAttribute)
+    .filter((v): v is string => v !== null);
+  const cameraAttr = camParts.length > 0 ? ` data-camera="${escapeHtml(camParts.join(', '))}"` : '';
+  const transitionVal = index > 0 ? mapTransitionAttribute(scene.transition) : null;
+  const transitionAttr = transitionVal ? ` data-transition="${escapeHtml(transitionVal)}"` : '';
+
+  const character = findPrimaryCharacter(scene, characters);
+  const hasPortalProp = /door|portal/i.test(`${scene.title} ${scene.description}`);
+  const characterSvg = buildCharacterSvg(
+    character,
+    scene.timeline.characterActions,
+    hasPortalProp,
+    safeSceneId
+  );
+
+  return `    <section class="scene" id="${safeSceneId}" data-duration="${duration}"${cameraAttr}${transitionAttr}>
+      <header class="scene-header">
+        <h1 class="scene-title" data-enter="rise">${escapeHtml(scene.title)}</h1>
+        <p class="scene-desc" data-enter="fade-up 0.6 0.15">${escapeHtml(scene.description)}</p>
+      </header>
+      <div class="scene-stage">
+        ${characterSvg}
+      </div>
+    </section>`;
+}
+
+export function compileProjectHtml(input: CompileProjectInput): string {
+  assertSafeId(input.projectId, 'project');
+
+  const width = safePositive(input.config.width, 1280);
+  const height = safePositive(input.config.height, 720);
+  const fps = safePositive(input.config.fps, 30);
+
+  const sectionsHtml =
+    input.scenes.length > 0
+      ? input.scenes
+          .map((scene, index) => renderSceneSection(scene, index, input.characters))
+          .join('\n')
+      : `    <section class="scene" id="scene_intro" data-duration="3">
+      <header class="scene-header">
+        <h1 class="scene-title" data-enter="rise">${escapeHtml(input.config.name)}</h1>
+        <p class="scene-desc" data-enter="fade-up 0.6 0.15">${escapeHtml(input.config.prompt)}</p>
+      </header>
+      <div class="scene-stage">
+        ${buildCharacterSvg(input.characters[0], [])}
+      </div>
+    </section>`;
+
+  return `<!doctype html>
+<html lang="en" data-width="${width}" data-height="${height}" data-fps="${fps}">
+<head>
+<meta charset="utf-8">
+<title>${escapeHtml(input.config.name)}</title>
+<style>${COMPILER_STYLES}</style>
+</head>
+<body>
+  <main data-sequence>
+${sectionsHtml}
+  </main>
+</body>
+</html>
+`;
+}

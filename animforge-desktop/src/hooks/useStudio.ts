@@ -315,6 +315,7 @@ export function useStudio() {
       setError('Select or create a project before rendering.');
       return false;
     }
+    if (renderingProjectIdRef.current !== null) return false;
 
     const targetProjectId = current.id;
     const targetSeq = projectSeqRef.current;

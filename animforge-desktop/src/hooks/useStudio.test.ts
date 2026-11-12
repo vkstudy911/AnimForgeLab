@@ -418,10 +418,20 @@ describe('useStudio', () => {
     expect(result.current.projects).toHaveLength(1);
     expect(result.current.projects[0].id).toBe('proj_1');
 
-    // Same-tick renderProject + cancelRender resolves target project via synchronous ref
+    // Same-tick double renderProject ignores second trigger while first render is still active
     let renderPromise!: Promise<boolean>;
+    let duplicateResult = true;
     await act(async () => {
       renderPromise = result.current.renderProject();
+      duplicateResult = await result.current.renderProject();
+    });
+    expect(duplicateResult).toBe(false);
+    expect(mockInvoke.mock.calls.filter(([c]) => c === 'project_render')).toHaveLength(1);
+    expect(result.current.busy.rendering).toBe(true);
+    expect(result.current.renderingProjectId).toBe('proj_1');
+
+    // Same-tick cancelRender resolves target project via synchronous ref
+    await act(async () => {
       await result.current.cancelRender();
     });
     expect(mockInvoke).toHaveBeenCalledWith('project_cancel_render', { projectId: 'proj_1' });

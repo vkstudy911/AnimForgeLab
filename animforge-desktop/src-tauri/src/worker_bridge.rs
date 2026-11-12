@@ -532,6 +532,20 @@ impl WorkerBridge {
                 if let Ok(mut map) = pending_arc.lock() {
                     map.remove(&req_id);
                 }
+                // Tear down wedged worker & child render/preview processes so activeRenders cannot stay stuck.
+                let timed_out_proc = self.process.lock().ok().and_then(|mut guard| {
+                    if guard
+                        .as_ref()
+                        .is_some_and(|proc| Arc::ptr_eq(&proc.pending, &pending_arc))
+                    {
+                        guard.take()
+                    } else {
+                        None
+                    }
+                });
+                if let Some(proc) = timed_out_proc {
+                    terminate_worker_process(proc);
+                }
                 Err(format!(
                     "Worker request '{method}' timed out after {}s",
                     timeout.as_secs()
@@ -984,9 +998,9 @@ import fs from 'node:fs';
 import path from 'node:path';
 import readline from 'node:readline';
 const ws = process.argv[2];
-fs.writeFileSync(path.join(ws, '.pid'), String(process.pid));
+fs.appendFileSync(path.join(ws, '.pids'), `${process.pid}\n`);
 process.on('SIGTERM', () => {
-  fs.writeFileSync(path.join(ws, '.sigterm'), '1');
+  fs.appendFileSync(path.join(ws, '.sigterm'), `${process.pid}\n`);
   process.exit(0);
 });
 const rl = readline.createInterface({ input: process.stdin, crlfDelay: Infinity });
@@ -1016,10 +1030,16 @@ const keepAlive = setInterval(() => {}, 10000);
             .call_json("hang_forever", serde_json::json!({}), Duration::from_millis(60))
             .expect_err("timeout must fire cleanly");
         assert!(timeout_err.contains("timed out"), "got: {timeout_err}");
+        let killed_after_timeout = fs::read_to_string(ws.join(".sigterm")).expect("timeout must kill worker");
+        assert_eq!(killed_after_timeout.lines().count(), 1);
 
         assert!(bridge
             .call_json("ping", serde_json::json!({}), Duration::from_secs(2))
             .is_ok());
+        let pids_raw = fs::read_to_string(ws.join(".pids")).expect("pids file");
+        let pids: Vec<&str> = pids_raw.lines().collect();
+        assert_eq!(pids.len(), 2, "expected respawned second worker pid");
+        assert_ne!(pids[0], pids[1]);
 
         let missing_projects = bridge.list_projects().expect_err("missing projects must fail");
         assert!(missing_projects.contains("missing projects"), "got: {missing_projects}");
@@ -1031,7 +1051,8 @@ const keepAlive = setInterval(() => {}, 10000);
 
         drop(bridge);
 
-        assert!(ws.join(".sigterm").is_file(), "expected Drop to escalate to SIGTERM");
+        let sigterms = fs::read_to_string(ws.join(".sigterm")).expect("drop must kill respawned worker");
+        assert_eq!(sigterms.lines().count(), 2, "expected timeout + drop SIGTERM");
     }
 
     #[test]

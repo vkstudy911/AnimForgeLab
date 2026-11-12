@@ -28,7 +28,6 @@ pub enum AssetResolveError {
 pub struct ResolvedAsset {
     pub path: PathBuf,
     pub content_type: &'static str,
-    pub size: u64,
 }
 
 struct ConnectionSlot {
@@ -352,7 +351,6 @@ pub fn resolve_safe_asset(
     Ok(ResolvedAsset {
         path: canon_target,
         content_type: requested_mime,
-        size: meta.len(),
     })
 }
 
@@ -1168,7 +1166,6 @@ mod tests {
 
         let mp4 = resolve_safe_asset(&ws, "/projects/p1/output.mp4").unwrap();
         assert_eq!(mp4.content_type, "video/mp4");
-        assert_eq!(mp4.size, 10);
 
         let svg = resolve_safe_asset(&ws, "/assets/characters/pip.svg").unwrap();
         assert_eq!(svg.content_type, "image/svg+xml");

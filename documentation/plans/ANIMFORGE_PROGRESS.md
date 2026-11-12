@@ -1,8 +1,8 @@
 # AnimForge Studio — Live Execution Progress Log
 
-**Last Updated:** 2026-11-11  
+**Last Updated:** 2026-11-12  
 **Active Milestone:** Milestone 1 — Core Foundation  
-**Current Task:** `M1-T11` (`M1-T11.3` Next — Executing M1-T11 micro-tasks sequentially)
+**Current Task:** `M1-T11` (`M1-T11.4` Next — Executing M1-T11 micro-tasks sequentially)
 
 ---
 
@@ -31,9 +31,9 @@
 | `M1-T10` | G — Native Doctor | Rust-backed PASS/WARN/FAIL checks across OS/Rust/Node/FFmpeg/3 engines/dirs | `DONE` | Clean (`fe0ae7d2`: Hold -> Ship) | `af92c9b` | `cargo clippy --all-targets -- -D warnings` (`0` warnings); `cargo test` (`7/7`, incl. trailing-space fixture, child-`PATH` propagation, 8-category probe); `vitest run` (`6/6`, StrictMode concurrency + accessibility); `vite build` (`207ms`) |
 | `M1-T11` | H — `<gm-player>` Preview | Worker bridge, jailed `127.0.0.1` HTTP server, real `<gm-player>` UI stage | `IN_PROGRESS` | Per-task reviews | Pending | Micro-tasks tracked in `M1_T11_TASKS.md` (`M1-T11.1`..`M1-T11.5`) |
 | `M1-T11.1` | H1 — Protocol v1 | Versioned stdio protocol (`v1`), structured errors, `cancel_render` | `DONE` | Clean (`af86fb2a`: all 7 findings fixed) | `576444b` | `npm run typecheck && npm run build && npm test`: `22/22` unit pass (`1` integration skipped cleanly); verified `WORKER_PROTOCOL.md`, `cancel_render`, cancel-then-rerender |
-| `M1-T11.2` | H2 — Rust Worker Bridge | Persistent Node worker stdio bridge + non-blocking Tauri commands | `DONE` | Clean (`53b8a10f`: all 5 findings fixed) | Pending commit | `cargo clippy --all-targets -- -D warnings` (`0`); `cargo test` (`11/11`, incl. trailing-space real worker round-trip, concurrent cancel, crash respawn, non-UTF-8 pipe resilience, timeout & `Drop` `SIGTERM`) |
-| `M1-T11.3` | H3 — Preview HTTP Server | Path-jailed `127.0.0.1:0` server with canonicalization & `Range` support | `PENDING` | Pending | — | Queued next |
-| `M1-T11.4` | H4 — Studio UI & Player | `useStudio` hook + `<PreviewStage />` mounting real `<gm-player>` | `PENDING` | Pending | — | Queued after `M1-T11.3` |
+| `M1-T11.2` | H2 — Rust Worker Bridge | Persistent Node worker stdio bridge + non-blocking Tauri commands | `DONE` | Clean (`53b8a10f`: all 5 findings fixed) | `49c231c` | `cargo clippy --all-targets -- -D warnings` (`0`); `cargo test` (`11/11`, incl. trailing-space real worker round-trip, concurrent cancel, crash respawn, non-UTF-8 pipe resilience, timeout & `Drop` `SIGTERM`) |
+| `M1-T11.3` | H3 — Preview HTTP Server | Path-jailed `127.0.0.1:0` server with canonicalization & `Range` support | `DONE` | Verified (`179c1eca` + `668dc8f7`: all findings fixed, `Range` UTF-8 boundary fix verified) | Pending commit | `cargo clippy --all-targets -- -D warnings` (`0`); `cargo test` (`16/16`, incl. symlinked jail root/oracle defense, strict Host/Origin/frame-ancestors, smuggling/HEAD/503 & live `127.0.0.1` loopback tests) |
+| `M1-T11.4` | H4 — Studio UI & Player | `useStudio` hook + `<PreviewStage />` mounting real `<gm-player>` | `IN_PROGRESS` | Pending | — | Queued next |
 | `M1-T11.5` | H5 — Live Smoke & Audit | Live Tauri app E2E smoke test, final review & M1 final report | `PENDING` | Pending | — | Queued after `M1-T11.4` |
 
 ---

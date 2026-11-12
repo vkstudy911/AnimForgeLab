@@ -1,6 +1,8 @@
 pub mod doctor;
+pub mod preview_server;
 pub mod worker_bridge;
 
+use preview_server::PreviewServer;
 use std::ffi::OsStr;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -73,6 +75,7 @@ pub fn run() {
     let workspace_root =
         resolve_workspace_root().expect("AnimForgeLab workspace root must be resolvable");
     let worker_root = workspace_root.clone();
+    let preview_root = workspace_root.clone();
 
     let app = tauri::Builder::default()
         .manage(AppPaths { workspace_root })
@@ -84,11 +87,16 @@ pub fn run() {
                     let _ = app_handle.emit(RENDER_PROGRESS_EVENT, &payload);
                 }),
             ));
+            let preview_server = Arc::new(
+                PreviewServer::start(&preview_root).map_err(std::io::Error::other)?,
+            );
             app.manage(bridge);
+            app.manage(preview_server);
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
             doctor::run_doctor,
+            preview_server::get_preview_base_url,
             worker_bridge::project_list,
             worker_bridge::project_create_from_prompt,
             worker_bridge::project_load,
@@ -104,6 +112,9 @@ pub fn run() {
         if let tauri::RunEvent::Exit = event {
             if let Some(bridge) = app_handle.try_state::<Arc<WorkerBridge>>() {
                 bridge.shutdown();
+            }
+            if let Some(server) = app_handle.try_state::<Arc<PreviewServer>>() {
+                server.shutdown();
             }
         }
     });

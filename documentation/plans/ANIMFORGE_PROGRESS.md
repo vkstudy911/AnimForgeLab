@@ -38,6 +38,24 @@
 
 ---
 
+## Post-M1 Tooling & OpenCode MCP Integration (Pre-M2)
+
+| Deliverable | Description | Status | Verification Evidence |
+| :--- | :--- | :--- | :--- |
+| One-Click macOS Launcher | `Start-AnimForge.command`, `STOP-ANIMFORGE.command`, `START_HERE.md` | `DONE` | `chmod +x`, `bash -n`, duplicate-instance lock guard, graceful Ctrl+C / stop cleanup |
+| OpenCode MCP Server (`animforge-core/src/mcp/`) | Official `@modelcontextprotocol/sdk@^1.32.2` stdio server exposing 16 real validated `animforge_*` tools (`errors.ts`, `validation.ts`, `schemas.ts`, `tools.ts`, `server.ts`, `index.ts`) | `DONE` | `npm run typecheck && npm test`: `28/28` unit/stdio tests PASS; `npm run test:integration` (`BypassSandbox: true`, `task-2383`): `2/2` real Chrome+FFmpeg+`ffprobe` E2E tests PASS; `PreviewServer` not exposed (`previewServerExposed: false`) |
+| OpenCode Setup & Integration Report | `OPENCODE_MCP_SETUP.md`, `MCP_INTEGRATION_PLAN.md`, `MCP_INTEGRATION_REPORT.md` | `DONE` | Verified `opencode.json` schema with trailing-space command array; `~/.config/opencode/opencode.json` untouched; `engines/*` clean; Rust `16/16`, Clippy `0` warnings, Desktop Vitest `16/16` & Vite build pass |
+
+---
+
+## Dancer Project QA Fixes (Post-M1, OpenCode MCP)
+
+| Task | Description | Status | Verification Evidence |
+| :--- | :--- | :--- | :--- |
+| Dancer `ghost-overlap` fix | Root-caused scene-transition text stacking in `proj_1794470257338_1`; crossfade (`fade`/`dissolve` → runtime `fade`, no exit) stacks headers; full-frame gradient backgrounds defeat the checker's occlusion heuristic so `wipe` does not clear it; switched scene_2/scene_3 transitions to `slide` (runtime `slide-left` with enter+exit) via `animforge_update_scene` | `DONE` | QA `0 errors / 0 warnings` (was `0/2`); both cuts verified independently in recompiled bundle (`slide-left 0.5` on scene_2/scene_3); diff vs backup = exactly 2 transition attributes; report `DANCER_TRANSITION_QA_REPORT.md`; backup `backups/proj_1794470257338_1_pre-transition-fix_20261112_142508/` |
+
+---
+
 ## Decision & Ruling Log
 
 - **2026-11-11 — Skill Execution Mapping:** Verified Superpowers (`writing-plans`, `subagent-driven-development`, `executing-plans`, `test-driven-development`, `systematic-debugging`, `verification-before-completion`) and Ponytail (`ponytail`, `ponytail-review`) skills are installed and inspected. Mapped subagent independent reviews to `invoke_subagent`.

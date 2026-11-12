@@ -8,6 +8,9 @@
   --text: #f1f5f9;
   --text-muted: #94a3b8;
   --accent: #38bdf8;
+  --accent-contrast: #082f49;
+  --danger-border: #ef4444;
+  --danger-fg: #fecaca;
   --pass-bg: #14532d;
   --pass-fg: #dcfce7;
   --warn-bg: #78350f;
@@ -26,6 +29,19 @@ body {
   min-height: 100vh;
   background-color: var(--bg);
   color: var(--text);
+  accent-color: var(--accent);
+}
+
+/* Fail open for undefined custom elements so content stays reachable if script fails */
+gm-player:not(:defined) {
+  opacity: 0;
+  animation: defined-fallback 0.2s 2s forwards;
+}
+
+@keyframes defined-fallback {
+  to {
+    opacity: 1;
+  }
 }
 
 .studio-shell {
@@ -69,11 +85,36 @@ body {
   align-content: start;
 }
 
+.studio-workspace {
+  display: grid;
+  grid-template-columns: minmax(300px, 380px) minmax(0, 1fr);
+  gap: 1rem;
+  align-items: start;
+}
+
+@media (max-width: 960px) {
+  .studio-workspace {
+    grid-template-columns: 1fr;
+  }
+}
+
+.studio-sidebar,
+.studio-stage-col {
+  display: grid;
+  gap: 1rem;
+  align-content: start;
+}
+
 .panel {
   background-color: var(--surface);
   border: 1px solid var(--border);
   border-radius: 8px;
   padding: 1rem 1.25rem;
+}
+
+.panel h2 {
+  margin: 0 0 0.75rem;
+  font-size: 1rem;
 }
 
 .doctor-header {
@@ -96,14 +137,25 @@ body {
   word-break: break-all;
 }
 
-.doctor-error {
+.doctor-error,
+.studio-alert {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
   padding: 0.65rem 0.85rem;
   margin-bottom: 0.75rem;
   border-radius: 6px;
   background-color: var(--fail-bg);
   color: var(--fail-fg);
-  border: 1px solid #ef4444;
+  border: 1px solid var(--danger-border);
   font-size: 0.875rem;
+}
+
+.studio-status {
+  min-height: 1.25rem;
+  font-size: 0.875rem;
+  color: var(--text-muted);
 }
 
 .doctor-list {
@@ -111,7 +163,7 @@ body {
   margin: 0;
   padding: 0;
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
   gap: 0.75rem;
 }
 
@@ -145,6 +197,248 @@ body {
   word-break: break-word;
 }
 
+.project-list,
+.scene-tabs,
+.qa-issues {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 0.5rem;
+}
+
+.project-button {
+  width: 100%;
+  text-align: left;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  padding: 0.55rem 0.75rem;
+}
+
+.project-button[aria-pressed='true'],
+.scene-tab-btn[aria-pressed='true'],
+.view-switch button[aria-pressed='true'] {
+  border-color: var(--accent);
+  background-color: #17253a;
+}
+
+.project-meta,
+.stage-subtitle,
+.render-meta,
+.playback-time,
+.qa-counts,
+.field-hint,
+.empty-copy {
+  margin: 0;
+  font-size: 0.8125rem;
+  color: var(--text-muted);
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 0.35rem;
+  margin-block-end: 0.9rem;
+}
+
+.field label {
+  font-size: 0.875rem;
+  font-weight: 600;
+}
+
+input[type='text'],
+textarea {
+  width: 100%;
+  font: inherit;
+  font-size: max(1rem, 0.9375rem);
+  padding: 0.5rem 0.65rem;
+  min-block-size: 38px;
+  border-radius: 6px;
+  border: 1px solid var(--control-border);
+  background-color: var(--surface-elevated);
+  color: var(--text);
+}
+
+textarea {
+  resize: vertical;
+  min-block-size: 76px;
+}
+
+:is(input[type='text'], textarea):user-invalid,
+:is(input[type='text'], textarea)[aria-invalid='true'] {
+  border-color: var(--danger-border);
+}
+
+.field-error {
+  font-size: 0.8125rem;
+  color: var(--danger-fg);
+}
+
+.required-mark {
+  color: var(--accent);
+}
+
+.scene-tabs {
+  grid-template-columns: repeat(auto-fit, minmax(110px, 1fr));
+  margin-block-end: 0.85rem;
+}
+
+.stage-header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.75rem;
+  margin-bottom: 0.85rem;
+}
+
+.stage-header h2 {
+  margin-bottom: 0.2rem;
+}
+
+.stage-actions,
+.view-switch,
+.playback-bar,
+.qa-summary-row,
+.render-progress-top {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.render-progress-box {
+  background-color: var(--surface-elevated);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 0.75rem;
+  margin-bottom: 0.85rem;
+  display: grid;
+  gap: 0.45rem;
+}
+
+.render-progress-top {
+  justify-content: space-between;
+}
+
+.render-progress-bar {
+  width: 100%;
+  height: 10px;
+  accent-color: var(--accent);
+}
+
+@supports not (accent-color: #38bdf8) {
+  .render-progress-bar {
+    -webkit-appearance: none;
+    -moz-appearance: none;
+    appearance: none;
+    border: 1px solid var(--control-border);
+    background-color: var(--bg);
+    border-radius: 5px;
+    overflow: hidden;
+  }
+
+  .render-progress-bar::-webkit-progress-bar {
+    background-color: var(--bg);
+    border-radius: 5px;
+  }
+
+  .render-progress-bar::-webkit-progress-value {
+    background-color: var(--accent);
+    border-radius: 5px;
+  }
+
+  .render-progress-bar::-moz-progress-bar {
+    background-color: var(--accent);
+    border-radius: 5px;
+  }
+}
+
+.stage-viewport {
+  width: 100%;
+  aspect-ratio: var(--stage-aspect, 16 / 9);
+  background-color: #000;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  overflow: hidden;
+  display: grid;
+  place-items: center;
+}
+
+.stage-gm-player,
+.stage-video {
+  width: 100%;
+  height: auto;
+  display: block;
+}
+
+.stage-empty {
+  padding: 1.5rem;
+  margin: 0;
+  text-align: center;
+  color: var(--text-muted);
+  font-size: 0.9375rem;
+}
+
+.playback-bar {
+  margin-top: 0.65rem;
+}
+
+.scene-description-details {
+  margin-top: 0.85rem;
+  background-color: var(--surface-elevated);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 0.6rem 0.8rem;
+}
+
+.scene-description-details summary {
+  cursor: pointer;
+  font-size: 0.875rem;
+  font-weight: 600;
+}
+
+.scene-description-list {
+  margin: 0.5rem 0 0;
+  padding-inline-start: 1.25rem;
+  display: grid;
+  gap: 0.35rem;
+  font-size: 0.875rem;
+}
+
+.qa-panel {
+  margin-top: 0.9rem;
+  padding-top: 0.85rem;
+  border-top: 1px solid var(--border);
+  display: grid;
+  gap: 0.6rem;
+}
+
+.qa-summary-row h3 {
+  margin: 0;
+  font-size: 0.9375rem;
+}
+
+.qa-issue-item {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.5rem;
+  font-size: 0.875rem;
+  background-color: var(--surface-elevated);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 0.5rem 0.65rem;
+}
+
+.qa-code {
+  font-size: 0.75rem;
+  color: var(--accent);
+}
+
 .badge {
   display: inline-block;
   padding: 0.15rem 0.45rem;
@@ -173,16 +467,23 @@ body {
 }
 
 button {
-  min-block-size: 32px;
-  min-inline-size: 32px;
-  padding: 0.4rem 0.85rem;
+  min-block-size: 36px;
+  min-inline-size: 36px;
+  padding: 0.45rem 0.9rem;
   border-radius: 6px;
   border: 1px solid var(--control-border);
   background-color: var(--surface-elevated);
   color: var(--text);
   font: inherit;
   font-size: 0.875rem;
+  font-weight: 500;
   cursor: pointer;
+}
+
+button.btn-primary {
+  background-color: var(--accent-contrast);
+  border-color: var(--accent);
+  color: #e0f2fe;
 }
 
 button:hover:not(:disabled) {
@@ -194,7 +495,7 @@ button:disabled {
   cursor: not-allowed;
 }
 
-:where(button, a, input, select, textarea):focus-visible {
+:where(button, a, input, select, textarea, summary):focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: 2px;
 }
@@ -204,7 +505,30 @@ button:disabled {
   .studio-header,
   .doctor-item,
   .badge,
+  .stage-viewport,
+  .render-progress-box,
+  .scene-description-details,
+  .qa-issue-item,
+  input[type='text'],
+  textarea,
   button {
     border: 1px solid CanvasText;
+  }
+
+  .project-button[aria-pressed='true'],
+  .scene-tab-btn[aria-pressed='true'],
+  .view-switch button[aria-pressed='true'] {
+    border: 2px solid Highlight;
+    background-color: Highlight;
+    color: HighlightText;
+  }
+
+  :is(input[type='text'], textarea):is(:user-invalid, [aria-invalid='true']) {
+    border: 2px dashed Highlight;
+  }
+
+  :is(input[type='text'], textarea):focus-visible {
+    outline: 2px solid Highlight;
+    outline-offset: 2px;
   }
 }

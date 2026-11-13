@@ -1,8 +1,8 @@
 # AnimForge Studio — Live Execution Progress Log
 
 **Last Updated:** 2026-11-12  
-**Active Milestone:** Milestone 1 — Core Foundation (**COMPLETE**, stopped before `M1-T12`)  
-**Current Task:** `M1-T11` (`DONE` — awaiting approval to begin `M1-T12` / Milestone 2)
+**Active Milestone:** Phase 2 — M2-B through M2-J Final Quality Gate Signed Off (`DONE`, Resource Optimization Mode)  
+**Current Task:** Final Quality Gate Audit (`e207c8c4`) + TDD Hardening + Sequential Runtime & Integration Sign-Off (`PHASE2_FINAL_QUALITY_REPORT.md`) `DONE`
 
 ---
 
@@ -53,6 +53,47 @@
 | Task | Description | Status | Verification Evidence |
 | :--- | :--- | :--- | :--- |
 | Dancer `ghost-overlap` fix | Root-caused scene-transition text stacking in `proj_1794470257338_1`; crossfade (`fade`/`dissolve` → runtime `fade`, no exit) stacks headers; full-frame gradient backgrounds defeat the checker's occlusion heuristic so `wipe` does not clear it; switched scene_2/scene_3 transitions to `slide` (runtime `slide-left` with enter+exit) via `animforge_update_scene` | `DONE` | QA `0 errors / 0 warnings` (was `0/2`); both cuts verified independently in recompiled bundle (`slide-left 0.5` on scene_2/scene_3); diff vs backup = exactly 2 transition attributes; report `DANCER_TRANSITION_QA_REPORT.md`; backup `backups/proj_1794470257338_1_pre-transition-fix_20261112_142508/` |
+
+---
+
+## M2 — Frontend Audit, UX Architecture & Multi-Page Studio Redesign
+
+| Task | Scope | Status | Owners | Verification Evidence |
+| :--- | :--- | :--- | :--- | :--- |
+| **Audit & UX Planning** | Complete frontend audit, skill discovery (`modern-web-guidance`, `ponytail`, Superpowers), Charcoal + Warm Amber design system & 10-page UX architecture | `DONE` | Coordinator | `docs/frontend-audit/*`, `docs/redesign/{SKILL_USAGE_REPORT,APP_UX_ARCHITECTURE,NAVIGATION_MAP,WORKSPACE_LAYOUTS,COMPONENT_DESIGN_SYSTEM,REDESIGN_IMPLEMENTATION_PLAN,FRONTEND_COMPATIBILITY_REPORT,DESIGN_SYSTEM,IMPLEMENTATION_PLAN,AGENT_TASK_ASSIGNMENTS}.md` |
+| **T1–T3 Shell & Foundation** | CSP-safe `public/theme-init.js`, `useThemePreference` (`dark`/`light`/`system`), `tokens.css`/`base.css`/`shell.css`, `types.ts`, `useStudio.ts` draft & create extensions, accessible UI primitives, `StudioContext`, `StudioHeader`, `WorkspaceRail`, `NewProjectDialog`, `CommandPaletteDialog` | `DONE` | Coordinator | `useStudio.test.ts` (`4/4`), `useThemePreference.test.ts` (`1/1`), `primitives.test.tsx` (`3/3`), `WorkspaceRail.test.tsx` (`1/1`) |
+| **T4 Animation Studio Workspace** | `AnimationEditor` 4-zone NLE workbench, `SceneOutliner`, enhanced `PreviewStage` (Zoom/Safe-Zones/Fullscreen/Transport/QA), `CueInspector`, `MultiTrackTimeline` (4 lanes, visibility toggles, zoom, scrubbable ruler) | `DONE` | Agent A (`ui-implementer`) + Coordinator QA fixes | `AnimationEditor.test.tsx` (`5/5`), `PreviewStage.test.tsx` (`4/4`); fixed timeline inline `height: 100%` flex collapse & `960x640` tab/toolbar fit |
+| **T5 Management & Diagnostics** | `HomeDashboard`, `ProjectManager` (search/filter, rename, JSON export, embedded New Project card), `StoryScenesWorkspace`, `RenderWorkspace` (Amber SVG ring + FPS/ETA), `DiagnosticsWorkspace` & `DoctorBar` | `DONE` | Agent B (`ui-implementer`) + Coordinator QA fixes | `ManagementWorkspaces.test.tsx` (`5/5`), `DoctorBar.test.tsx` (`5/5`); aligned `SearchIcon` in `ProjectManager` |
+| **T6 Secondary Creative & System** | `CharacterStudio` (rig schematic & part/palette CRUD), `AssetLibrary` (`PreviewServer` previews & scene assignment), `SettingsWorkspace` (`localStorage` prefs), `AgentCenterWorkspace` (real artifacts + 16-tool MCP catalog + honest `Planned` states) | `DONE` | Agent C (`ui-implementer`) + Coordinator QA fixes | `SecondaryWorkspaces.test.tsx` (`4/4`); added normalized `[0..1]` SVG rig pivot scaling in `CharacterStudio` |
+| **T7–T10 Integration, Visual QA & Docs** | Wired `App.tsx`/`main.tsx`, removed legacy `src/styles.css`, verified backend + live Tauri dev launch + headless Chromium `1280x820`/`960x640` dark/light screenshots, wrote QA & status docs | `DONE` | Coordinator | Desktop Vitest `35/35` (10 files), `tsc --noEmit`, `vite build` (`64` modules), Rust `cargo test` (`16/16` unsandboxed), `cargo clippy` (`0` warnings), Core `28/28` unit tests, `docs/redesign/{PAGE_IMPLEMENTATION_STATUS,FRONTEND_QA_REPORT}.md` |
+
+---
+
+## M2-B — Shared API Foundation & Backend Integration (Phase 2)
+
+| Task | Scope | Status | Owners | Verification Evidence |
+| :--- | :--- | :--- | :--- | :--- |
+| **Step 1C Shared Frontend Contracts** | Extended `types.ts`, `useStudio.ts` (CRUD, assets, agents, disk config, server probe, reveal, JSDOM `FileReader` fallback, conditional `previewRev`/`videoRev` gating, `preferredEngine` summary update), and `StudioContext.tsx` (StrictMode-safe settings disk persistence, SQLite render history sync, immediate delete filter) | `DONE` | Integration + Coordinator | `useStudio.test.ts` (`6/6`), `App.test.tsx` (`3/3`) |
+| **B1 `DiskManifestSchema` & Cache** | Fixed `worker.ts` & `givemotion.adapter.ts` to preserve `assets`/`storyboard`, tolerate legacy `null` optional fields, validate scene IDs/`projectId`, reject corrupt JSON/assets | `DONE` | Integration + Reviewer `f9fa81b7` | `worker.test.ts` (`null` compat + corrupt manifest regression cases pass) |
+| **B2 SQLite Operations** | Transactional `deleteProject` (including child `render_jobs` & corrupt-JSON cleanup via `hasProjectRow`, `ROLLBACK` guard) & newest-first `listRenderJobs` in `database.ts` | `DONE` | Integration + Reviewer `f9fa81b7` | `database.test.ts` (`1/1`) + `worker.test.ts` corrupt SQL row delete pass |
+| **B3 Tauri IPC & Reveal Jail** | Wired `project_delete`, `project_duplicate`, `project_import`, `project_list_render_jobs`, `project_assets_list`, `project_import_asset`, `project_import_asset_bytes`, `run_deterministic_agent`, `config_get`, `config_save`, `reveal_in_workspace` (macOS `open -R`, Windows UNC strip) | `DONE` | Integration + Reviewer `f9fa81b7` | `cargo test` (`17/17` unsandboxed, `16/17` sandboxed) & `cargo clippy --all-targets -- -D warnings` (`0` warnings) |
+| **B4 Engine Integration Dispatch** | Wired `RemotionAdapter`, `StretchyStudioAdapter`, and `GivemotionAdapter` in `worker.ts`; fast local Remotion CLI check (`<1ms`, zero `npx` hang); honest `ENGINE_UNAVAILABLE` & `artifactKind: 'spine_json'` | `DONE` | Integration + Reviewer `f9fa81b7` | `worker.test.ts` + `remotion.adapter.test.ts` pass; `M2_B_IMPLEMENTATION_REPORT.md` |
+| **B5 GiveMotion Compiler Media** | Compiled `backgroundAssetId` & non-muted `timeline.audioTracks`, blocked raw/percent-encoded traversal (`%2e`/`%2f`/`%5c`/`%25`), wrapped `writeProjectFiles` path checks, added `evictProjectCache` | `DONE` | Integration + Reviewer `f9fa81b7` | `givemotion.compiler.test.ts` + `givemotion.adapter.test.ts` pass; total sequential verification: Core `31/31` (`2` opt-in skipped), Desktop `37/37` (`10` files `--poolOptions.forks.singleFork`), Vite build (`307ms`) |
+
+---
+
+## M2-C through M2-J — Phase 2 UI, Compiler/Media, Diagnostics & Final Hardening
+
+| Milestone | Scope | Status | Owners | Verification Evidence |
+| :--- | :--- | :--- | :--- | :--- |
+| **M2-C Studio Manipulation & Undo** | Bounded 50-entry Undo/Redo stack (`Cmd+Z`/`Cmd+Shift+Z`/`Cmd+Y`, header buttons), `Space` play/pause & frame-step shortcuts with button/dialog guards, `PreviewStage` transport (Stop, ±1 frame, Mute, Rate `0.5x`/`1x`/`2x`, Loop, zoom overflow pan), `SceneOutliner` duplicate/delete/inline rename + seek, `CueInspector` complete action/camera/audio/character/asset editing + `NumericInput`, `MultiTrackTimeline` clip drag/resize/split/`Delete`/snap/mute/lock | `DONE` | Coordinator + Reviewers `e207c8c4` / `1e898c07` | `App.test.tsx` (`4/4`), `PreviewStage.test.tsx` (`5/5`), `AnimationEditor.test.tsx` (`8/8`), `useStudio.test.ts` (`6/6`) |
+| **M2-D Multi-Engine Dispatch** | Routed `preferredEngine` (`givemotion`, `remotion`, `stretchystudio`, `composite`) cleanly in `worker.ts`; fast local Remotion detection; Spine JSON non-MP4 output metadata; `Composite` honest `ENGINE_UNAVAILABLE` | `DONE` | Integration + Reviewer `f9fa81b7` | `worker.test.ts`, `remotion.adapter.test.ts` |
+| **M2-E Projects, Story & Deterministic Plan** | `ProjectManager` active/inactive `Delete` confirmation, `Duplicate`, `.animforge.json` `Import`, `Reveal Folder`, active rename sync (`forceReload: true`), `NumericInput` dimensions; `StoryScenesWorkspace` inline storyboard `logline`/`artStyle`/beat editing, `Create Scene from Beat`, scene duplicate/delete + cleared selection guard, deterministic `Plan Scenes` | `DONE` | Coordinator + Reviewer `1e898c07` | `ManagementWorkspaces.test.tsx` (`8/8`) |
+| **M2-F Render History, Config & `ffprobe`** | Shared `probeVideo` (`animforge-core/src/media/ffprobe.ts`) attached to `render_project`, SQLite `project_list_render_jobs` history table with context-aware `Retry`/`Open Project` & `Reveal MP4`/`Reveal Output`, interactive `Width`/`Height`/`FPS`/`Quality` overrides | `DONE` | Coordinator + Reviewer `1e898c07` | `worker.test.ts`, `ManagementWorkspaces.test.tsx` (`8/8`) |
+| **M2-G Character Rig & Asset Pipeline** | `CharacterStudio` uniform `preserveAspectRatio` SVG drag pivots + `Arrow` nudges (`stopPropagation`) + `Duplicate` + JSON Export/10MB-capped validated Import; shared `workspaceAssets.ts` scanner + `AssetLibrary` workspace scan, native file import, inline metadata edit, scene-ref-cleaned delete, `projects/<id>/<uri>` preview/reveal path resolution & dedup | `DONE` | Coordinator + Reviewer `1e898c07` | `SecondaryWorkspaces.test.tsx` (`4/4`), `worker.test.ts` (`31/31` core unit suite) |
+| **M2-H PreviewServer Probe & Disk/Tool Doctor** | Loopback `/__health` probe (`probe_preview_server`) wired to `DiagnosticsWorkspace`; `doctor.rs` expanded with optional `blender`/`opentoonz`/`krita` probe, `statvfs` disk free space, and atomic `.animforge_write_probe_<pid>_<seq>` write test | `DONE` | Coordinator + Reviewer `1e898c07` | `DoctorBar.test.tsx` (`5/5`), Rust `cargo test` (`19/19` across sandbox + single `BypassSandbox` loopback test), `cargo clippy` (`0` warnings) |
+| **M2-I Settings Config & Compact Density** | Real `:root[data-density="compact"]` CSS rules (`tokens.css`/`base.css`/`shell.css`, light `--track-scene` contrast `#92400e`), disk `config_get`/`config_save` (`animforge.config.json`) + `localStorage` fallback, `Reset to Defaults`, accurate shortcuts & `Unavailable` engine badges | `DONE` | Coordinator + Reviewer `1e898c07` | `useThemePreference.test.ts` (`1/1`), `SecondaryWorkspaces.test.tsx` (`4/4`) |
+| **M2-J Agent Center, Final Review & Docs** | `Copy Command` with `mountedRef` cleanup, inline confirm for `Run ScenePlannerAgent` (`StoryDirectorAgent`/`CharacterManagerAgent`/`ScenePlannerAgent` calling `run_deterministic_agent`), dirty-draft flush before asset/agent actions, same-ms `StudioContext` revision equality fix, full independent reviews (`1e898c07`, `e207c8c4`) & Quality Gate TDD fixes (`persistFullProject` manifest status sync, `NewProjectDialog` reset/group a11y, `StudioDialog` focus return, hotkey/undo boundaries, `.avif`/`.flac`, active dirty rename sync, stage aspect scaling, `960x640` header fit, finite/split guards) | `DONE` | Coordinator + Reviewers `1e898c07`, `e207c8c4` | Core `31/31` unit + `2/2` Chrome/FFmpeg/ffprobe E2E + live `worker.js` stdio smoke, Desktop `46/46` (`10` files sequential), Rust `19/19`, Clippy `0`, Vite `65` modules (`335ms`), `PHASE2_FINAL_QUALITY_REPORT.md` |
 
 ---
 

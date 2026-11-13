@@ -1,4 +1,5 @@
 import {
+  Asset,
   CameraMovement,
   Character,
   CharacterAction,
@@ -12,6 +13,46 @@ export interface CompileProjectInput {
   config: ProjectConfig;
   scenes: Scene[];
   characters: Character[];
+  assets?: Asset[];
+}
+
+const IMAGE_ASSET_EXTS = new Set(['.png', '.jpg', '.jpeg', '.webp', '.gif', '.svg', '.avif']);
+const AUDIO_ASSET_EXTS = new Set(['.mp3', '.wav', '.ogg', '.m4a', '.aac', '.flac']);
+
+export function toSafeProjectAssetRelPath(
+  uri: string | undefined,
+  allowedExts: Set<string>,
+  projectId?: string
+): string | null {
+  if (!uri || typeof uri !== 'string') return null;
+  if (uri.includes('\0') || uri.includes('\\') || /%(?:2e|2f|5c|25)/i.test(uri)) return null;
+  if (/^[a-zA-Z][a-zA-Z0-9+.-]*:/.test(uri) || uri.startsWith('//')) return null;
+
+  let normalized = uri.split(/[?#]/)[0].trim();
+  if (normalized.startsWith('./')) {
+    normalized = normalized.slice(2);
+  }
+  if (projectId && normalized.startsWith(`projects/${projectId}/assets/`)) {
+    normalized = normalized.slice(`projects/${projectId}/`.length);
+  } else if (normalized.startsWith('/')) {
+    return null;
+  }
+
+  const segments = normalized.split('/');
+  if (
+    segments.length < 2 ||
+    segments[0] !== 'assets' ||
+    segments.some((s) => !s || s === '.' || s === '..' || s.startsWith('.'))
+  ) {
+    return null;
+  }
+
+  const file = segments[segments.length - 1];
+  const dotIdx = file.lastIndexOf('.');
+  const ext = dotIdx >= 0 ? file.slice(dotIdx).toLowerCase() : '';
+  if (!allowedExts.has(ext)) return null;
+
+  return segments.join('/');
 }
 
 const DEFAULT_PALETTE = ['#22c55e', '#16a34a', '#86efac', '#15803d', '#ffffff'] as const;
@@ -142,7 +183,11 @@ export function buildCharacterSvg(
   const { classes, cssVars } = buildActionStyles(actions);
   const classList = classes.join(' ');
   const styleAttr = cssVars ? ` style="${cssVars}"` : '';
-  const hasSmile = actions.some((a) => a.name === 'smile');
+  const hasSmile = actions.some((a) => {
+    if (a.name === 'smile') return true;
+    const expr = a.parameters?.expression;
+    return typeof expr === 'string' && expr.toLowerCase() === 'smile';
+  });
   const mouthPath = hasSmile
     ? 'M 152 135 Q 170 154 188 135'
     : 'M 156 138 Q 170 146 184 138';
@@ -233,6 +278,16 @@ const COMPILER_STYLES = `
     gap: calc(var(--px, 1px) * 28);
     background: radial-gradient(circle at 50% 45%, #16223b 0%, #0b0f17 75%);
   }
+  .scene-bg {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    opacity: 0.45;
+    pointer-events: none;
+    z-index: 0;
+  }
   .scene-header {
     max-width: calc(var(--px, 1px) * 1280);
     text-align: center;
@@ -256,6 +311,8 @@ const COMPILER_STYLES = `
     flex: 1;
     width: 100%;
     min-height: 0;
+    position: relative;
+    z-index: 1;
     display: flex;
     align-items: center;
     justify-content: center;
@@ -356,10 +413,17 @@ function findPrimaryCharacter(scene: Scene, characters: Character[]): Character 
   return characters[0];
 }
 
+function clampVolume(value: number): number {
+  if (!Number.isFinite(value)) return 1;
+  return round2(Math.min(1, Math.max(0, value)));
+}
+
 function renderSceneSection(
   scene: Scene,
   index: number,
-  characters: Character[]
+  characters: Character[],
+  assetsById: Map<string, Asset>,
+  projectId: string
 ): string {
   const safeSceneId = assertSafeId(scene.id, 'scene');
   const duration = safePositive(scene.duration, 2);
@@ -370,6 +434,26 @@ function renderSceneSection(
   const transitionVal = index > 0 ? mapTransitionAttribute(scene.transition) : null;
   const transitionAttr = transitionVal ? ` data-transition="${escapeHtml(transitionVal)}"` : '';
 
+  const bgAsset = scene.backgroundAssetId ? assetsById.get(scene.backgroundAssetId) : undefined;
+  const safeBgUri = toSafeProjectAssetRelPath(bgAsset?.uri, IMAGE_ASSET_EXTS, projectId);
+  const bgMarkup = safeBgUri
+    ? `\n      <img class="scene-bg" src="${escapeHtml(safeBgUri)}" alt="" aria-hidden="true">`
+    : '';
+
+  const audioElements = scene.timeline.audioTracks
+    .map((track) => {
+      if ((track as { muted?: boolean }).muted) return '';
+      const audioAsset = assetsById.get(track.assetId);
+      const safeAudioUri = toSafeProjectAssetRelPath(audioAsset?.uri, AUDIO_ASSET_EXTS, projectId);
+      if (!safeAudioUri) return '';
+      const start = safeNonNegative(track.startTime, 0);
+      const vol = clampVolume(track.volume);
+      const loopAttr = track.loop ? ' loop' : '';
+      return `\n      <audio src="${escapeHtml(safeAudioUri)}" data-start="${start}" data-volume="${vol}"${loopAttr} preload="auto"></audio>`;
+    })
+    .filter(Boolean)
+    .join('');
+
   const character = findPrimaryCharacter(scene, characters);
   const hasPortalProp = /door|portal/i.test(`${scene.title} ${scene.description}`);
   const characterSvg = buildCharacterSvg(
@@ -379,28 +463,29 @@ function renderSceneSection(
     safeSceneId
   );
 
-  return `    <section class="scene" id="${safeSceneId}" data-duration="${duration}"${cameraAttr}${transitionAttr}>
+  return `    <section class="scene" id="${safeSceneId}" data-duration="${duration}"${cameraAttr}${transitionAttr}>${bgMarkup}
       <header class="scene-header">
         <h1 class="scene-title" data-enter="rise">${escapeHtml(scene.title)}</h1>
         <p class="scene-desc" data-enter="fade-up 0.6 0.15">${escapeHtml(scene.description)}</p>
       </header>
       <div class="scene-stage">
         ${characterSvg}
-      </div>
+      </div>${audioElements}
     </section>`;
 }
 
 export function compileProjectHtml(input: CompileProjectInput): string {
-  assertSafeId(input.projectId, 'project');
+  const safeProjectId = assertSafeId(input.projectId, 'project');
 
   const width = safePositive(input.config.width, 1280);
   const height = safePositive(input.config.height, 720);
   const fps = safePositive(input.config.fps, 30);
+  const assetsById = new Map<string, Asset>((input.assets ?? []).map((a) => [a.id, a]));
 
   const sectionsHtml =
     input.scenes.length > 0
       ? input.scenes
-          .map((scene, index) => renderSceneSection(scene, index, input.characters))
+          .map((scene, index) => renderSceneSection(scene, index, input.characters, assetsById, safeProjectId))
           .join('\n')
       : `    <section class="scene" id="scene_intro" data-duration="3">
       <header class="scene-header">

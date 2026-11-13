@@ -4,10 +4,111 @@ pub mod worker_bridge;
 
 use preview_server::PreviewServer;
 use std::ffi::OsStr;
-use std::path::{Path, PathBuf};
+use std::path::{Component, Path, PathBuf};
+use std::process::Command;
 use std::sync::Arc;
 use tauri::{Emitter, Manager};
 use worker_bridge::{WorkerBridge, RENDER_PROGRESS_EVENT};
+
+pub fn resolve_safe_reveal_target(workspace_root: &Path, raw_path: &str) -> Result<PathBuf, String> {
+    if raw_path.is_empty() || raw_path.contains('\0') || raw_path.contains('\\') {
+        return Err("Invalid path for workspace reveal".to_string());
+    }
+    let canon_ws = std::fs::canonicalize(workspace_root)
+        .map_err(|err| format!("Workspace root is inaccessible: {err}"))?;
+
+    let candidate_input = Path::new(raw_path);
+    let candidate = if candidate_input.is_absolute() {
+        candidate_input.to_path_buf()
+    } else {
+        for comp in candidate_input.components() {
+            match comp {
+                Component::Normal(part) => {
+                    if part.to_string_lossy().starts_with('.') {
+                        return Err("Hidden path segments cannot be revealed".to_string());
+                    }
+                }
+                Component::CurDir => {}
+                _ => {
+                    return Err("Traversal path segments are not allowed".to_string());
+                }
+            }
+        }
+        canon_ws.join(candidate_input)
+    };
+
+    let canon_target = std::fs::canonicalize(&candidate)
+        .map_err(|err| format!("Target path does not exist: {err}"))?;
+    if !canon_target.starts_with(&canon_ws) {
+        return Err("Target path escapes workspace root".to_string());
+    }
+    let rel = canon_target
+        .strip_prefix(&canon_ws)
+        .map_err(|_| "Workspace jail prefix mismatch".to_string())?;
+    for comp in rel.components() {
+        if let Component::Normal(part) = comp {
+            if part.to_string_lossy().starts_with('.') {
+                return Err("Hidden path segments cannot be revealed".to_string());
+            }
+        }
+    }
+    Ok(canon_target)
+}
+
+#[tauri::command]
+fn reveal_in_workspace(
+    state: tauri::State<'_, AppPaths>,
+    path: String,
+) -> Result<String, String> {
+    let target = resolve_safe_reveal_target(&state.workspace_root, &path)?;
+    #[cfg(target_os = "macos")]
+    {
+        let status = Command::new("open")
+            .arg("-R")
+            .arg(&target)
+            .status()
+            .map_err(|err| format!("Failed to launch Finder: {err}"))?;
+        if !status.success() {
+            return Err("Finder reveal command exited with error".to_string());
+        }
+    }
+    #[cfg(target_os = "linux")]
+    {
+        let open_dir = if target.is_dir() {
+            target.clone()
+        } else {
+            target
+                .parent()
+                .map(|p| p.to_path_buf())
+                .unwrap_or_else(|| target.clone())
+        };
+        let status = Command::new("xdg-open")
+            .arg(&open_dir)
+            .status()
+            .map_err(|err| format!("Failed to open file manager: {err}"))?;
+        if !status.success() {
+            return Err("xdg-open exited with error".to_string());
+        }
+    }
+    #[cfg(target_os = "windows")]
+    {
+        let raw_win = target.to_string_lossy();
+        let win_path = raw_win.strip_prefix(r"\\?\").unwrap_or(&raw_win);
+        let mut cmd = Command::new("explorer");
+        if target.is_file() {
+            cmd.arg(format!("/select,{win_path}"));
+        } else {
+            cmd.arg(win_path);
+        }
+        let status = cmd
+            .status()
+            .map_err(|err| format!("Failed to open Explorer: {err}"))?;
+        if !status.success() {
+            return Err("Explorer exited with error".to_string());
+        }
+    }
+    Ok(target.to_string_lossy().into_owned())
+}
 
 #[derive(Debug, Clone)]
 pub struct AppPaths {
@@ -97,10 +198,22 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             doctor::run_doctor,
             preview_server::get_preview_base_url,
+            preview_server::probe_preview_server,
+            reveal_in_workspace,
             worker_bridge::project_list,
             worker_bridge::project_create_from_prompt,
             worker_bridge::project_load,
             worker_bridge::project_save,
+            worker_bridge::project_delete,
+            worker_bridge::project_duplicate,
+            worker_bridge::project_import,
+            worker_bridge::project_list_render_jobs,
+            worker_bridge::project_assets_list,
+            worker_bridge::project_import_asset,
+            worker_bridge::project_import_asset_bytes,
+            worker_bridge::run_deterministic_agent,
+            worker_bridge::config_get,
+            worker_bridge::config_save,
             worker_bridge::project_preview,
             worker_bridge::project_render,
             worker_bridge::project_cancel_render,
@@ -174,5 +287,34 @@ mod tests {
         )
         .expect_err("invalid override must error");
         assert!(err.contains("ANIMFORGE_WORKSPACE_DIR"));
+    }
+
+    #[test]
+    fn reveal_target_enforces_workspace_jail_and_trailing_space() {
+        let (_guard, root, _nested) = make_trailing_space_fixture("reveal");
+        let proj_dir = root.join("projects").join("proj_1");
+        fs::create_dir_all(&proj_dir).expect("proj_dir");
+        let asset_file = proj_dir.join("output.mp4");
+        fs::write(&asset_file, b"mp4").expect("file");
+        fs::write(root.join(".secret"), b"secret").expect("hidden");
+
+        let ok = resolve_safe_reveal_target(&root, "projects/proj_1/output.mp4")
+            .expect("relative inside workspace should pass");
+        assert_eq!(ok, fs::canonicalize(&asset_file).unwrap());
+
+        assert!(resolve_safe_reveal_target(&root, "../escape").is_err());
+        assert!(resolve_safe_reveal_target(&root, ".secret").is_err());
+        assert!(resolve_safe_reveal_target(&root, "/etc/passwd").is_err());
+
+        #[cfg(unix)]
+        {
+            let outside_file = root.parent().expect("parent").join("outside.txt");
+            fs::write(&outside_file, b"outside").expect("outside");
+            let link_path = proj_dir.join("escape_link.txt");
+            std::os::unix::fs::symlink(&outside_file, &link_path).expect("symlink");
+            let link_err = resolve_safe_reveal_target(&root, "projects/proj_1/escape_link.txt")
+                .expect_err("escaping symlink must be rejected");
+            assert!(link_err.contains("escapes workspace root"));
+        }
     }
 }

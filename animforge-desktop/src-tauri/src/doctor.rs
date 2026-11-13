@@ -2,7 +2,10 @@ use serde::{Deserialize, Serialize};
 use std::ffi::OsStr;
 use std::path::{Path, PathBuf};
 use std::process::Command;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{SystemTime, UNIX_EPOCH};
+
+static PROBE_SEQ: AtomicU64 = AtomicU64::new(0);
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "UPPERCASE")]
@@ -172,6 +175,35 @@ pub fn search_path_dirs() -> Vec<PathBuf> {
     )
 }
 
+fn parse_df_available_kb(stdout: &str) -> Option<u64> {
+    let line = stdout.lines().nth(1)?.trim();
+    let cols: Vec<&str> = line.split_whitespace().collect();
+    if cols.len() >= 4 {
+        cols[3].parse::<u64>().ok()
+    } else {
+        None
+    }
+}
+
+fn macos_app_fallback(name: &str) -> Option<PathBuf> {
+    #[cfg(target_os = "macos")]
+    {
+        let candidate = match name {
+            "blender" => Some("/Applications/Blender.app/Contents/MacOS/Blender"),
+            "krita" => Some("/Applications/Krita.app/Contents/MacOS/krita"),
+            "opentoonz" => Some("/Applications/OpenToonz.app/Contents/MacOS/OpenToonz"),
+            _ => None,
+        }?;
+        let path = PathBuf::from(candidate);
+        if is_executable_file(&path) {
+            return Some(path);
+        }
+    }
+    #[cfg(not(target_os = "macos"))]
+    let _ = name;
+    None
+}
+
 pub fn resolve_binary_in(name: &str, dirs: &[PathBuf]) -> PathBuf {
     for dir in dirs {
         if dir.as_os_str().is_empty() {
@@ -188,6 +220,10 @@ pub fn resolve_binary_in(name: &str, dirs: &[PathBuf]) -> PathBuf {
                 return exe_candidate;
             }
         }
+    }
+
+    if let Some(app_bin) = macos_app_fallback(name) {
+        return app_bin;
     }
 
     PathBuf::from(name)
@@ -235,7 +271,7 @@ pub fn collect_doctor_report_with<F>(workspace_root: &Path, run_cmd: &F) -> Doct
 where
     F: Fn(&str, &[&OsStr]) -> Result<CmdOutput, String>,
 {
-    let mut checks = Vec::with_capacity(8);
+    let mut checks = Vec::with_capacity(10);
 
     // 1. OS & Architecture
     let os = std::env::consts::OS;
@@ -547,6 +583,105 @@ where
     };
     checks.push(dir_check);
 
+    // 9. Optional Creative Tools (Blender, OpenToonz, Krita)
+    let mut found_tools = Vec::new();
+    let mut missing_tools = Vec::new();
+    for (bin, label) in [
+        ("blender", "Blender"),
+        ("opentoonz", "OpenToonz"),
+        ("krita", "Krita"),
+    ] {
+        match run_cmd(bin, &[OsStr::new("--version")]) {
+            Ok(out) if out.success => {
+                let ver = first_line(&out.stdout);
+                found_tools.push(if ver.is_empty() { label.to_string() } else { ver });
+            }
+            _ => missing_tools.push(label),
+        }
+    }
+    let creative_check = if found_tools.is_empty() {
+        DoctorCheckItem {
+            id: "creative_tools".to_string(),
+            label: "Optional Creative Tools".to_string(),
+            status: CheckStatus::Warn,
+            summary: "Optional external app not installed — built-in pipeline unaffected".to_string(),
+            detail: Some(format!("Checked: {}", missing_tools.join(", "))),
+        }
+    } else {
+        DoctorCheckItem {
+            id: "creative_tools".to_string(),
+            label: "Optional Creative Tools".to_string(),
+            status: CheckStatus::Pass,
+            summary: found_tools.join(" · "),
+            detail: if missing_tools.is_empty() {
+                None
+            } else {
+                Some(format!("Not installed (optional): {}", missing_tools.join(", ")))
+            },
+        }
+    };
+    checks.push(creative_check);
+
+    // 10. Workspace Write-ability & Free Disk Space
+    let probe_seq = PROBE_SEQ.fetch_add(1, Ordering::Relaxed);
+    let probe_file = workspace_root.join(format!(
+        ".animforge_write_probe_{}_{}",
+        std::process::id(),
+        probe_seq
+    ));
+    let write_res = std::fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(&probe_file)
+        .map(|_| {
+            let _ = std::fs::remove_file(&probe_file);
+        });
+    let storage_check = match write_res {
+        Err(err) => DoctorCheckItem {
+            id: "workspace_storage".to_string(),
+            label: "Workspace Storage".to_string(),
+            status: CheckStatus::Fail,
+            summary: "Workspace directory is not writable".to_string(),
+            detail: Some(err.to_string()),
+        },
+        Ok(()) => {
+            let avail_kb = run_cmd("df", &[OsStr::new("-kP"), workspace_root.as_os_str()])
+                .ok()
+                .filter(|o| o.success)
+                .and_then(|o| parse_df_available_kb(&o.stdout));
+            match avail_kb {
+                Some(kb) if kb < 512 * 1024 => {
+                    let mb = (kb as f64) / 1024.0;
+                    DoctorCheckItem {
+                        id: "workspace_storage".to_string(),
+                        label: "Workspace Storage".to_string(),
+                        status: CheckStatus::Warn,
+                        summary: format!("Low disk space ({mb:.0} MB free)"),
+                        detail: Some(format!("Writable at {ws_display}")),
+                    }
+                }
+                Some(kb) => {
+                    let gb = (kb as f64) / (1024.0 * 1024.0);
+                    DoctorCheckItem {
+                        id: "workspace_storage".to_string(),
+                        label: "Workspace Storage".to_string(),
+                        status: CheckStatus::Pass,
+                        summary: format!("Writable ({gb:.1} GB free)"),
+                        detail: Some(ws_display.clone()),
+                    }
+                }
+                None => DoctorCheckItem {
+                    id: "workspace_storage".to_string(),
+                    label: "Workspace Storage".to_string(),
+                    status: CheckStatus::Pass,
+                    summary: "Writable (disk capacity unavailable)".to_string(),
+                    detail: Some(ws_display.clone()),
+                },
+            }
+        }
+    };
+    checks.push(storage_check);
+
     let overall = if checks.iter().any(|c| c.status == CheckStatus::Fail) {
         CheckStatus::Fail
     } else if checks.iter().any(|c| c.status == CheckStatus::Warn) {
@@ -700,14 +835,53 @@ ffmpeg      7.1 encoders: libx264
                 "npm" => ok("11.17.0\n"),
                 "ffmpeg" => ok("ffmpeg version 9.0.1 Copyright\n"),
                 "ffprobe" => ok("ffprobe version 9.0.1 Copyright\n"),
+                "blender" => ok("Blender 4.2.0\n"),
+                "opentoonz" => ok("OpenToonz 1.7.1\n"),
+                "krita" => ok("krita 5.2.6\n"),
+                "df" => ok("Filesystem 1024-blocks Used Available Capacity Mounted on\n/dev/disk3s1 488245288 300000000 188245288 62% /\n"),
                 other => Err(format!("unexpected bin {other}")),
             }
         });
 
         assert_eq!(report.overall, CheckStatus::Pass);
-        assert_eq!(report.checks.len(), 8);
+        assert_eq!(report.checks.len(), 10);
         assert!(report.checks.iter().all(|c| c.status == CheckStatus::Pass));
         assert!(report.workspace_root.contains(" /AnimForgeLab"));
+    }
+
+    #[test]
+    fn reports_optional_tools_warn_and_low_disk_space_warn() {
+        let (_guard, root) = make_workspace_fixture("optional_warn", true, true, true);
+        let report = collect_doctor_report_with(&root, &|bin, args| match bin {
+            "rustc" => Ok(CmdOutput { success: true, stdout: "rustc 1.99.1\n".into(), stderr: String::new() }),
+            "cargo" => Ok(CmdOutput { success: true, stdout: "cargo 1.99.1\n".into(), stderr: String::new() }),
+            "node" => {
+                if args.iter().any(|a| *a == OsStr::new("doctor")) {
+                    Ok(CmdOutput {
+                        success: true,
+                        stdout: "node v24.19.0\nchrome /Applications/Google Chrome.app\nffmpeg 9.0.1\nencoder software\n".into(),
+                        stderr: String::new(),
+                    })
+                } else {
+                    Ok(CmdOutput { success: true, stdout: "v24.19.0\n".into(), stderr: String::new() })
+                }
+            }
+            "npm" => Ok(CmdOutput { success: true, stdout: "11.17.0\n".into(), stderr: String::new() }),
+            "ffmpeg" => Ok(CmdOutput { success: true, stdout: "ffmpeg 9.0.1\n".into(), stderr: String::new() }),
+            "ffprobe" => Ok(CmdOutput { success: true, stdout: "ffprobe 9.0.1\n".into(), stderr: String::new() }),
+            "df" => Ok(CmdOutput {
+                success: true,
+                stdout: "Filesystem 1024-blocks Used Available Capacity Mounted on\n/dev/disk3s1 409600 307200 102400 75% /\n".into(),
+                stderr: String::new(),
+            }),
+            _ => Err("not installed".into()),
+        });
+
+        let by_id = |id: &str| report.checks.iter().find(|c| c.id == id).expect("check exists");
+        assert_eq!(by_id("creative_tools").status, CheckStatus::Warn);
+        assert!(by_id("creative_tools").summary.contains("built-in pipeline unaffected"));
+        assert_eq!(by_id("workspace_storage").status, CheckStatus::Warn);
+        assert!(by_id("workspace_storage").summary.contains("Low disk space"));
     }
 
     #[test]
@@ -800,7 +974,7 @@ ffmpeg      7.1 encoders: libx264
     }
 
     #[test]
-    fn real_workspace_doctor_probes_eight_categories_cleanly() {
+    fn real_workspace_doctor_probes_ten_categories_cleanly() {
         let manifest = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
         let root = manifest
             .parent()
@@ -808,18 +982,66 @@ ffmpeg      7.1 encoders: libx264
             .parent()
             .expect("AnimForgeLab");
         let report = collect_doctor_report(root);
-        assert_eq!(report.checks.len(), 8);
+        assert_eq!(report.checks.len(), 10);
         let dirs_check = report
             .checks
             .iter()
             .find(|c| c.id == "directories")
             .expect("directories check present");
         assert_eq!(dirs_check.status, CheckStatus::Pass);
+        let storage_check = report
+            .checks
+            .iter()
+            .find(|c| c.id == "workspace_storage")
+            .expect("storage check present");
+        assert_ne!(storage_check.status, CheckStatus::Fail);
 
         if std::env::var_os("ANIMFORGE_INTEGRATION").is_some()
             || Path::new("/Applications/Google Chrome.app").exists()
         {
             assert_ne!(report.overall, CheckStatus::Fail, "checks: {:?}", report.checks);
         }
+    }
+
+    #[test]
+    fn concurrent_doctor_probes_do_not_collide_on_write_probe() {
+        let (_guard, root) = make_workspace_fixture("concurrent", true, true, true);
+        let root_a = root.clone();
+        let root_b = root.clone();
+        let run_mock = |bin: &str, args: &[&OsStr]| -> Result<CmdOutput, String> {
+            match bin {
+                "rustc" => Ok(CmdOutput { success: true, stdout: "rustc 1.99.1\n".into(), stderr: String::new() }),
+                "cargo" => Ok(CmdOutput { success: true, stdout: "cargo 1.99.1\n".into(), stderr: String::new() }),
+                "node" => {
+                    if args.iter().any(|a| *a == OsStr::new("doctor")) {
+                        Ok(CmdOutput {
+                            success: true,
+                            stdout: "node v24.19.0\nchrome /Applications/Google Chrome.app\nffmpeg 9.0.1 encoders: libx264\n".into(),
+                            stderr: String::new(),
+                        })
+                    } else {
+                        Ok(CmdOutput { success: true, stdout: "v24.19.0\n".into(), stderr: String::new() })
+                    }
+                }
+                "npm" => Ok(CmdOutput { success: true, stdout: "11.17.0\n".into(), stderr: String::new() }),
+                "ffmpeg" => Ok(CmdOutput { success: true, stdout: "ffmpeg 9.0.1\n".into(), stderr: String::new() }),
+                "ffprobe" => Ok(CmdOutput { success: true, stdout: "ffprobe 9.0.1\n".into(), stderr: String::new() }),
+                "df" => Ok(CmdOutput {
+                    success: true,
+                    stdout: "Filesystem 1024-blocks Used Available Capacity Mounted on\n/dev/disk3s1 488245288 300000000 188245288 62% /\n".into(),
+                    stderr: String::new(),
+                }),
+                _ => Err("not installed".into()),
+            }
+        };
+
+        let t1 = std::thread::spawn(move || collect_doctor_report_with(&root_a, &run_mock));
+        let t2 = std::thread::spawn(move || collect_doctor_report_with(&root_b, &run_mock));
+        let r1 = t1.join().expect("thread 1");
+        let r2 = t2.join().expect("thread 2");
+        let ws1 = r1.checks.iter().find(|c| c.id == "workspace_storage").unwrap();
+        let ws2 = r2.checks.iter().find(|c| c.id == "workspace_storage").unwrap();
+        assert_ne!(ws1.status, CheckStatus::Fail);
+        assert_ne!(ws2.status, CheckStatus::Fail);
     }
 }

@@ -445,4 +445,193 @@ describe('useStudio', () => {
     expect(result.current.error).toBeNull();
     expect(result.current.statusMessage).toBe('Render cancelled.');
   });
+
+  it('supports deleteProject, duplicateProject, importProject, importAssetFile, probePreviewServer, and revealInWorkspace', async () => {
+    const DUPLICATED: ProjectDetail = {
+      ...SAMPLE_PROJECT,
+      id: 'proj_1_copy',
+      name: 'Solar Sail (Copy)',
+    };
+    mockInvoke.mockImplementation(async (cmd: string) => {
+      switch (cmd) {
+        case 'get_preview_base_url':
+          return 'http://127.0.0.1:50004';
+        case 'project_list':
+          return [
+            {
+              id: 'proj_1',
+              name: 'Solar Sail',
+              prompt: 'Animated solar sail unfolding in orbit',
+              status: 'scenes_planned',
+              width: 1280,
+              height: 720,
+              fps: 30,
+              updatedAt: '2026-11-11T00:00:00.000Z',
+            },
+          ];
+        case 'project_load':
+          return SAMPLE_PROJECT;
+        case 'project_duplicate':
+          return { project: DUPLICATED, projectDir: '/ws/projects/proj_1_copy' };
+        case 'project_import':
+          return { project: SECOND_PROJECT, projectDir: '/ws/projects/proj_2' };
+        case 'project_import_asset_bytes':
+          return {
+            project: {
+              ...SECOND_PROJECT,
+              assets: [
+                {
+                  id: 'asset_1',
+                  name: 'sky',
+                  type: 'background',
+                  uri: 'assets/sky.png',
+                  metadata: { sizeBytes: 3 },
+                  createdAt: '2026-11-12T00:00:00.000Z',
+                },
+              ],
+            },
+            asset: {
+              id: 'asset_1',
+              name: 'sky',
+              type: 'background',
+              uri: 'assets/sky.png',
+              metadata: { sizeBytes: 3 },
+              createdAt: '2026-11-12T00:00:00.000Z',
+            },
+            copiedTo: '/ws/projects/proj_2/assets/sky.png',
+            workspaceRelativePath: 'projects/proj_2/assets/sky.png',
+          };
+        case 'project_delete':
+          return { projectId: 'proj_2', deleted: true };
+        case 'probe_preview_server':
+          return {
+            reachable: true,
+            baseUrl: 'http://127.0.0.1:50004',
+            latencyMs: 2,
+            statusCode: 200,
+            error: null,
+          };
+        case 'reveal_in_workspace':
+          return '/ws/projects/proj_1';
+        default:
+          return null;
+      }
+    });
+
+    const { result } = renderHook(() => useStudio());
+    await waitFor(() => expect(result.current.projects).toHaveLength(1));
+
+    await act(async () => {
+      await result.current.duplicateProject('proj_1', 'Solar Sail (Copy)');
+    });
+    expect(result.current.activeProject?.id).toBe('proj_1_copy');
+    expect(result.current.projects.some((p) => p.id === 'proj_1_copy')).toBe(true);
+
+    await act(async () => {
+      await result.current.importProject(SECOND_PROJECT);
+    });
+    expect(result.current.activeProject?.id).toBe('proj_2');
+
+    const fakeFile = new File([new Uint8Array([1, 2, 3])], 'sky.png', { type: 'image/png' });
+    await act(async () => {
+      await result.current.importAssetFile('proj_2', fakeFile, { assetType: 'background' });
+    });
+    expect(mockInvoke).toHaveBeenCalledWith(
+      'project_import_asset_bytes',
+      expect.objectContaining({
+        projectId: 'proj_2',
+        fileName: 'sky.png',
+        dataBase64: 'AQID',
+      })
+    );
+    expect(result.current.activeProject?.assets).toHaveLength(1);
+
+    const probe = await result.current.probePreviewServer();
+    expect(probe?.reachable).toBe(true);
+
+    const revealed = await result.current.revealInWorkspace('projects/proj_1');
+    expect(revealed).toBe('/ws/projects/proj_1');
+
+    await act(async () => {
+      await result.current.deleteProject('proj_2');
+    });
+    expect(result.current.activeProject).toBeNull();
+    expect(result.current.projects.some((p) => p.id === 'proj_2')).toBe(false);
+  });
+
+  it('does not attach MP4 videoUrl for spine_json renders or bundleUrl for non-bundle previews, and preserves preferredEngine on save', async () => {
+    const STRETCHY_PROJ: ProjectDetail = {
+      ...SAMPLE_PROJECT,
+      preferredEngine: 'stretchystudio',
+    };
+    mockInvoke.mockImplementation(async (cmd: string) => {
+      switch (cmd) {
+        case 'get_preview_base_url':
+          return 'http://127.0.0.1:50005';
+        case 'project_list':
+          return [
+            {
+              id: 'proj_1',
+              name: 'Solar Sail',
+              prompt: 'Animated solar sail unfolding in orbit',
+              status: 'scenes_planned',
+              preferredEngine: 'givemotion',
+              width: 1280,
+              height: 720,
+              fps: 30,
+              updatedAt: '2026-11-11T00:00:00.000Z',
+            },
+          ];
+        case 'project_load':
+          return SAMPLE_PROJECT;
+        case 'project_save':
+          return STRETCHY_PROJ;
+        case 'project_preview':
+          return {
+            projectId: 'proj_1',
+            ok: true,
+            errors: 0,
+            warnings: 0,
+            notes: 1,
+            issues: [{ severity: 'note', code: 'STRETCHY_RIG_GENERATED', message: 'Generated Spine rig' }],
+            bundleDir: '/ws/projects/proj_1',
+            bundleIndexHtml: '',
+            playerHtml: '',
+          };
+        case 'project_render':
+          return {
+            renderJob: { id: 'job_stretch', projectId: 'proj_1', engine: 'stretchystudio', status: 'completed', progress: 100 },
+            videoPath: '/ws/projects/proj_1/character-rig.spine.json',
+            ffprobe: null,
+            artifactKind: 'spine_json',
+          };
+        default:
+          return null;
+      }
+    });
+
+    const { result } = renderHook(() => useStudio());
+    await waitFor(() => expect(result.current.projects).toHaveLength(1));
+
+    await act(async () => {
+      await result.current.selectProject('proj_1');
+    });
+
+    await act(async () => {
+      await result.current.saveProjectDraft(STRETCHY_PROJ);
+    });
+    expect(result.current.projects[0].preferredEngine).toBe('stretchystudio');
+
+    await act(async () => {
+      await result.current.previewProject();
+    });
+    expect(result.current.bundleUrl).toBeNull();
+    expect(result.current.statusMessage).toBe('Generated Spine rig');
+
+    await act(async () => {
+      await result.current.renderProject();
+    });
+    expect(result.current.videoUrl).toBeNull();
+    expect(result.current.statusMessage).toBe('Exported Spine rig JSON (character-rig.spine.json).');
+  });
 });

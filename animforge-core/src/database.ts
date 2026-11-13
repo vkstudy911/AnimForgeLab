@@ -16,6 +16,7 @@ export interface ProjectSummary {
   name: string;
   prompt: string;
   status: Project['status'];
+  preferredEngine?: Project['preferredEngine'];
   width: number;
   height: number;
   fps: number;
@@ -25,7 +26,7 @@ export interface ProjectSummary {
 type SqliteDatabase = {
   exec(sql: string): void;
   prepare(sql: string): {
-    run(...args: SqlParam[]): void;
+    run(...args: SqlParam[]): { changes?: number | bigint };
     get(...args: SqlParam[]): Record<string, unknown> | undefined;
     all(...args: SqlParam[]): Record<string, unknown>[];
   };
@@ -114,6 +115,7 @@ export class AnimForgeDatabase {
           name: p.name,
           prompt: p.prompt,
           status: p.status,
+          preferredEngine: p.preferredEngine,
           width: p.width,
           height: p.height,
           fps: p.fps,
@@ -124,6 +126,28 @@ export class AnimForgeDatabase {
       }
     }
     return summaries;
+  }
+
+  hasProjectRow(id: string): boolean {
+    const row = this.db.prepare('SELECT 1 AS found FROM projects WHERE id = ? LIMIT 1').get(id);
+    return Boolean(row?.found);
+  }
+
+  deleteProject(id: string): boolean {
+    this.db.exec('BEGIN');
+    try {
+      this.db.prepare('DELETE FROM render_jobs WHERE project_id = ?').run(id);
+      const res = this.db.prepare('DELETE FROM projects WHERE id = ?').run(id);
+      this.db.exec('COMMIT');
+      return Number(res?.changes ?? 0) > 0;
+    } catch (err) {
+      try {
+        this.db.exec('ROLLBACK');
+      } catch {
+        // Ignore rollback errors if SQLite already rolled back the active transaction
+      }
+      throw err;
+    }
   }
 
   saveRenderJob(job: RenderJob): void {
@@ -166,6 +190,35 @@ export class AnimForgeDatabase {
       startedAt: row.started_at,
       finishedAt: row.finished_at ?? undefined,
     });
+  }
+
+  listRenderJobs(projectId?: string): RenderJob[] {
+    const rows = projectId
+      ? this.db
+          .prepare('SELECT * FROM render_jobs WHERE project_id = ? ORDER BY started_at DESC')
+          .all(projectId)
+      : this.db.prepare('SELECT * FROM render_jobs ORDER BY started_at DESC').all();
+    const jobs: RenderJob[] = [];
+    for (const row of rows) {
+      try {
+        jobs.push(
+          RenderJobSchema.parse({
+            id: row.id,
+            projectId: row.project_id,
+            engine: row.engine,
+            status: row.status,
+            progress: row.progress,
+            outputFilePath: row.output_path ?? undefined,
+            error: row.error ?? undefined,
+            startedAt: row.started_at,
+            finishedAt: row.finished_at ?? undefined,
+          })
+        );
+      } catch {
+        continue;
+      }
+    }
+    return jobs;
   }
 
   close(): void {

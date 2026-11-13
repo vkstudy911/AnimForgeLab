@@ -394,6 +394,39 @@ test('GivemotionAdapter uses shell-free arg arrays, writes givemotion.json & ind
     const killStatus = await adapter.getRenderStatus(killJob.id);
     assert.equal(killStatus.status, 'failed');
     assert.ok(killStatus.error?.includes('ENOENT node'));
+
+    // saveProjectState ignores encoded traversal asset URIs cleanly without throwing, and evictProjectCache drops memory entry
+    const nowIso = new Date().toISOString();
+    await adapter.saveProjectState({
+      id: 'proj_encoded_asset',
+      name: 'Encoded Asset Guard',
+      prompt: 'Safe test',
+      width: 1280,
+      height: 720,
+      fps: 30,
+      preferredEngine: 'givemotion',
+      status: 'created',
+      characters: [],
+      assets: [
+        {
+          id: 'asset_bad_enc',
+          name: 'BadEnc',
+          type: 'background',
+          uri: 'assets/%2e%2e/foo.png',
+          metadata: {},
+          createdAt: nowIso,
+        },
+      ],
+      scenes: [],
+      createdAt: nowIso,
+      updatedAt: nowIso,
+    });
+    const encodedHtml = await fs.readFile(
+      path.join(workspaceTrailing, 'projects', 'proj_encoded_asset', 'index.html'),
+      'utf-8'
+    );
+    assert.ok(!encodedHtml.includes('foo.png'));
+    adapter.evictProjectCache('proj_encoded_asset');
   } finally {
     await fs.rm(tmpParent, { recursive: true, force: true });
   }

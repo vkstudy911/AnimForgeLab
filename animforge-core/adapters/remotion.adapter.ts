@@ -42,22 +42,62 @@ export function resolveNpxInvocation(
   throw new Error('Cannot locate npm npx-cli.js on Windows without shell execution');
 }
 
+function findLocalRemotionBinary(workspaceDir: string): string | null {
+  const binNames = process.platform === 'win32' ? ['remotion.cmd', 'remotion.exe', 'remotion'] : ['remotion'];
+  const localRoots = [
+    path.join(workspaceDir, 'node_modules', '.bin'),
+    path.join(workspaceDir, 'engines', 'remotion', 'node_modules', '.bin'),
+    path.join(workspaceDir, 'animforge-core', 'node_modules', '.bin'),
+    path.join(workspaceDir, 'projects', 'remotion-test', 'node_modules', '.bin'),
+    ...(process.env.PATH ? process.env.PATH.split(path.delimiter).filter(Boolean) : []),
+  ];
+  for (const dir of localRoots) {
+    for (const bin of binNames) {
+      const candidate = path.join(dir, bin);
+      if (fsSync.existsSync(candidate)) {
+        return candidate;
+      }
+    }
+  }
+  return null;
+}
+
 export class RemotionAdapter implements AnimationEngineAdapter {
   readonly name = 'remotion';
   private workspaceDir: string;
   private runner: ProcessRunner;
+  private hasCustomRunner: boolean;
+  private resolvedBinaryPath: string | null = null;
   private jobs = new Map<string, RenderJob>();
   private activeProcesses = new Set<SpawnedProcess>();
+  private activeRendersByProject = new Map<string, { jobId: string; cancel: () => boolean }>();
 
   constructor(workspaceDir: string, runner?: ProcessRunner) {
     this.workspaceDir = workspaceDir;
+    this.hasCustomRunner = runner !== undefined;
     this.runner = runner || createNodeProcessRunner();
   }
 
   async initialize(): Promise<void> {
     try {
+      if (!this.hasCustomRunner) {
+        const localBin = findLocalRemotionBinary(this.workspaceDir);
+        if (!localBin) {
+          throw new Error('Remotion CLI is not installed in workspace node_modules or PATH');
+        }
+        this.resolvedBinaryPath = localBin;
+        const result = await this.runner.execFile(localBin, ['--version'], { timeoutMs: 5000 });
+        if (result.exitCode !== 0 || !result.stdout.trim()) {
+          throw new Error(result.stderr.trim() || 'Remotion CLI not found');
+        }
+        return;
+      }
       const { cmd, prefixArgs } = resolveNpxInvocation();
-      const result = await this.runner.execFile(cmd, [...prefixArgs, 'remotion', '--version']);
+      const result = await this.runner.execFile(
+        cmd,
+        [...prefixArgs, '--no-install', 'remotion', '--version'],
+        { timeoutMs: 5000 }
+      );
       if (result.exitCode !== 0 || !result.stdout.trim()) {
         throw new Error(result.stderr.trim() || 'Remotion CLI not found');
       }
@@ -151,13 +191,31 @@ registerRoot(RemotionRoot);
     };
     this.jobs.set(jobId, job);
 
-    const { cmd, prefixArgs } = resolveNpxInvocation();
-    const child = this.runner.spawnProcess(
-      cmd,
-      [...prefixArgs, 'remotion', 'render', 'src/index.ts', 'Main', outputMp4],
-      { cwd: projectDir }
-    );
+    const localBin = !this.hasCustomRunner
+      ? this.resolvedBinaryPath ?? findLocalRemotionBinary(this.workspaceDir)
+      : null;
+    const child = localBin
+      ? this.runner.spawnProcess(localBin, ['render', 'src/index.ts', 'Main', outputMp4], {
+          cwd: projectDir,
+        })
+      : (() => {
+          const { cmd, prefixArgs } = resolveNpxInvocation();
+          return this.runner.spawnProcess(
+            cmd,
+            [...prefixArgs, '--no-install', 'remotion', 'render', 'src/index.ts', 'Main', outputMp4],
+            { cwd: projectDir }
+          );
+        })();
     this.activeProcesses.add(child);
+    let cancelled = false;
+    this.activeRendersByProject.set(safeProjectId, {
+      jobId,
+      cancel: () => {
+        if (cancelled || child.killed) return false;
+        cancelled = true;
+        return child.kill('SIGTERM');
+      },
+    });
     child.stdout?.resume();
 
     let settled = false;
@@ -179,6 +237,9 @@ registerRoot(RemotionRoot);
       if (settled) return;
       settled = true;
       this.activeProcesses.delete(child);
+      if (this.activeRendersByProject.get(safeProjectId)?.jobId === jobId) {
+        this.activeRendersByProject.delete(safeProjectId);
+      }
       errDecoder.end();
       job.status = 'failed';
       job.error = toErrorMessage(err);
@@ -189,23 +250,34 @@ registerRoot(RemotionRoot);
       if (settled) return;
       settled = true;
       this.activeProcesses.delete(child);
+      if (this.activeRendersByProject.get(safeProjectId)?.jobId === jobId) {
+        this.activeRendersByProject.delete(safeProjectId);
+      }
       appendErr(errDecoder.end());
 
-      if (code === 0) {
+      if (code === 0 && !cancelled) {
         job.status = 'completed';
         job.progress = 100;
         job.finishedAt = new Date().toISOString();
         onProgress?.({ phase: 'done', progress: 100 });
       } else {
         job.status = 'failed';
-        job.error =
-          errTail.trim() ||
-          (signal ? `Terminated by signal ${signal}` : `Exited with code ${String(code)}`);
+        job.error = cancelled
+          ? 'Remotion render cancelled by user'
+          : errTail.trim() ||
+            (signal ? `Terminated by signal ${signal}` : `Exited with code ${String(code)}`);
         job.finishedAt = new Date().toISOString();
       }
     });
 
     return job;
+  }
+
+  async cancelRender(projectId: string): Promise<boolean> {
+    const safeProjectId = assertSafeId(projectId, 'project');
+    const active = this.activeRendersByProject.get(safeProjectId);
+    if (!active) return false;
+    return active.cancel();
   }
 
   async getRenderStatus(jobId: string): Promise<RenderStatus> {
@@ -237,5 +309,6 @@ registerRoot(RemotionRoot);
       }
     }
     this.activeProcesses.clear();
+    this.activeRendersByProject.clear();
   }
 }

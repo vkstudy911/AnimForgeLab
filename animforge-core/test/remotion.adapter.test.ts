@@ -98,6 +98,7 @@ test('RemotionAdapter invokes npx without shell interpolation, drains stdout, an
     const adapter = new RemotionAdapter(workspaceTrailing, runner);
     await adapter.initialize();
     assert.ok(execCalls[0].args.includes('--version'));
+    assert.ok(execCalls[0].args.includes('--no-install'));
 
     const projectId = await adapter.createProject('proj_rm_safe', BASE_CONFIG);
     const projectDir = path.join(workspaceTrailing, 'projects', projectId);
@@ -105,6 +106,7 @@ test('RemotionAdapter invokes npx without shell interpolation, drains stdout, an
 
     assert.equal(spawnCalls.length, 1);
     assert.equal(spawnCalls[0].cwd, projectDir);
+    assert.ok(spawnCalls[0].args.includes('--no-install'));
     assert.deepEqual(spawnCalls[0].args.slice(-5), [
       'remotion',
       'render',
@@ -129,6 +131,16 @@ test('RemotionAdapter invokes npx without shell interpolation, drains stdout, an
     const failStatus = await adapter.getRenderStatus(failJob.id);
     assert.equal(failStatus.status, 'failed');
     assert.ok(failStatus.error?.includes('Missing Chrome headless'));
+
+    // cancelRender terminates active Remotion render cleanly
+    const cancelJob = await adapter.render(projectId);
+    const cancelFake = activeFake!;
+    assert.equal(await adapter.cancelRender(projectId), true);
+    assert.deepEqual(cancelFake.killed, ['SIGTERM']);
+    await closeFake(cancelFake, 0);
+    const cancelStatus = await adapter.getRenderStatus(cancelJob.id);
+    assert.equal(cancelStatus.status, 'failed');
+    assert.match(cancelStatus.error ?? '', /cancelled/i);
 
     // dispose() sends SIGTERM to active render and error+close race stays failed
     const killJob = await adapter.render(projectId);

@@ -1,3 +1,4 @@
+import * as fsSync from 'node:fs';
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import {
@@ -5,7 +6,7 @@ import {
   RenderProgressUpdate,
   SceneConfig,
 } from './adapter.interface.js';
-import { compileProjectHtml } from './givemotion.compiler.js';
+import { compileProjectHtml, toSafeProjectAssetRelPath } from './givemotion.compiler.js';
 import {
   createNdjsonLineParser,
   GiveMotionDoctorReport,
@@ -18,6 +19,8 @@ import {
   SpawnedProcess,
 } from './process-runner.js';
 import {
+  Asset,
+  AssetSchema,
   Character,
   CharacterSchema,
   Project,
@@ -27,6 +30,8 @@ import {
   RenderStatus,
   Scene,
   SceneSchema,
+  Storyboard,
+  StoryboardSchema,
 } from '../schemas/index.js';
 import { z } from 'zod';
 import { assertSafeId, resolveProjectDir, resolveWorkspacePath } from '../utils/paths.js';
@@ -51,14 +56,37 @@ export interface GiveMotionPreviewResult {
 
 const StoredProjectStateSchema = z.object({
   config: ProjectConfigSchema,
-  characters: z.array(CharacterSchema).default([]),
-  scenes: z.array(SceneSchema).default([]),
+  status: z
+    .enum(['created', 'storyboarded', 'assets_ready', 'scenes_planned', 'rendered', 'completed'])
+    .nullish()
+    .transform((v) => v ?? undefined),
+  updatedAt: z
+    .string()
+    .nullish()
+    .transform((v) => v ?? undefined),
+  storyboard: StoryboardSchema.nullish().transform((v) => v ?? undefined),
+  characters: z
+    .array(CharacterSchema)
+    .nullish()
+    .transform((v) => v ?? []),
+  assets: z
+    .array(AssetSchema)
+    .nullish()
+    .transform((v) => v ?? []),
+  scenes: z
+    .array(SceneSchema)
+    .nullish()
+    .transform((v) => v ?? []),
 });
 
 interface StoredProjectState {
   projectId: string;
   config: ProjectConfig;
+  status?: Project['status'];
+  updatedAt?: string;
+  storyboard?: Storyboard;
   characters: Character[];
+  assets: Asset[];
   scenes: Scene[];
 }
 
@@ -168,7 +196,11 @@ export class GivemotionAdapter implements AnimationEngineAdapter {
       const hydrated: StoredProjectState = {
         projectId,
         config: parsed.config,
+        ...(parsed.status ? { status: parsed.status } : {}),
+        ...(parsed.updatedAt ? { updatedAt: parsed.updatedAt } : {}),
+        storyboard: parsed.storyboard,
         characters: parsed.characters,
+        assets: parsed.assets,
         scenes: parsed.scenes,
       };
       for (const s of hydrated.scenes) {
@@ -191,11 +223,59 @@ export class GivemotionAdapter implements AnimationEngineAdapter {
     const sortedScenes = [...state.scenes].sort((a, b) => a.sequenceIndex - b.sequenceIndex);
     state.scenes = sortedScenes;
 
+    const allKnownExts = new Set([
+      '.png',
+      '.jpg',
+      '.jpeg',
+      '.webp',
+      '.gif',
+      '.svg',
+      '.avif',
+      '.mp3',
+      '.wav',
+      '.ogg',
+      '.m4a',
+      '.aac',
+      '.flac',
+    ]);
+    const liveCompileAssets: Asset[] = [];
+    for (const asset of state.assets) {
+      const rel = toSafeProjectAssetRelPath(asset.uri, allKnownExts, state.projectId);
+      if (!rel) continue;
+      let destInProject: string;
+      try {
+        destInProject = resolveWorkspacePath(projectDir, rel);
+      } catch {
+        continue;
+      }
+      if (!fsSync.existsSync(destInProject)) {
+        try {
+          const sharedCandidate = resolveWorkspacePath(this.workspaceDir, rel);
+          const stat = await fs.lstat(sharedCandidate);
+          if (stat.isFile() && !stat.isSymbolicLink()) {
+            await fs.mkdir(path.dirname(destInProject), { recursive: true });
+            await fs.copyFile(sharedCandidate, destInProject);
+          }
+        } catch {
+          // Ignore missing or unsafe shared file
+        }
+      }
+      try {
+        const destStat = await fs.lstat(destInProject);
+        if (destStat.isFile() && !destStat.isSymbolicLink()) {
+          liveCompileAssets.push({ ...asset, uri: rel });
+        }
+      } catch {
+        // Ignore missing project asset on disk so broken media never blocks bundle/compile
+      }
+    }
+
     const html = compileProjectHtml({
       projectId: state.projectId,
       config: state.config,
       scenes: state.scenes,
       characters: state.characters,
+      assets: liveCompileAssets,
     });
 
     await Promise.all([
@@ -218,6 +298,7 @@ export class GivemotionAdapter implements AnimationEngineAdapter {
       projectId: safeProjectId,
       config,
       characters: characters ? [...characters] : [],
+      assets: [],
       scenes: [],
     };
     for (const [sceneId, ownerProjectId] of this.sceneToProject.entries()) {
@@ -229,6 +310,15 @@ export class GivemotionAdapter implements AnimationEngineAdapter {
 
     await this.writeProjectFiles(projectDir, state);
     return safeProjectId;
+  }
+
+  evictProjectCache(projectId: string): void {
+    this.projects.delete(projectId);
+    for (const [sceneId, ownerProjectId] of this.sceneToProject.entries()) {
+      if (ownerProjectId === projectId) {
+        this.sceneToProject.delete(sceneId);
+      }
+    }
   }
 
   async saveProjectState(project: Project): Promise<void> {
@@ -252,7 +342,11 @@ export class GivemotionAdapter implements AnimationEngineAdapter {
         fps: project.fps,
         preferredEngine: project.preferredEngine,
       },
+      status: project.status,
+      updatedAt: project.updatedAt,
+      ...(project.storyboard ? { storyboard: project.storyboard } : {}),
       characters: [...project.characters],
+      assets: [...project.assets],
       scenes: project.scenes.map((scene) => {
         const safeSceneId = assertSafeId(scene.id, 'scene');
         this.sceneToProject.set(safeSceneId, safeProjectId);

@@ -2,20 +2,76 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
 import type {
+  AgentRunResult,
+  AssetType,
   CancelRenderResult,
+  ConfigResult,
   CreateProjectResult,
+  DeleteProjectResult,
+  DeterministicAgentKind,
   GiveMotionPreviewResult,
+  ImportAssetResult,
+  PreviewServerProbeResult,
+  ProjectCreateOptions,
   ProjectDetail,
   ProjectSummary,
+  RenderJobRecord,
   RenderProgressPayload,
   RenderProjectResult,
   StudioBusyState,
+  StudioDiskConfig,
+  WorkspaceAssetsResult,
 } from '../types';
 
 const RENDER_PROGRESS_EVENT = 'animforge://render-progress';
+const MAX_UPLOAD_BYTES = 50 * 1024 * 1024;
 
 function toErrorMessage(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
+}
+
+function projectToSummary(saved: ProjectDetail): ProjectSummary {
+  return {
+    id: saved.id,
+    name: saved.name,
+    prompt: saved.prompt,
+    status: saved.status,
+    preferredEngine: saved.preferredEngine,
+    width: saved.width,
+    height: saved.height,
+    fps: saved.fps,
+    updatedAt: saved.updatedAt,
+  };
+}
+
+async function fileToBase64(file: File): Promise<string> {
+  const buf =
+    typeof file.arrayBuffer === 'function'
+      ? await file.arrayBuffer()
+      : await new Promise<ArrayBuffer>((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onload = () => {
+            if (reader.result instanceof ArrayBuffer) {
+              resolve(reader.result);
+            } else {
+              reject(new Error(`Failed to read bytes for "${file.name}".`));
+            }
+          };
+          reader.onerror = () => reject(reader.error ?? new Error(`Failed to read "${file.name}".`));
+          reader.readAsArrayBuffer(file);
+        });
+  if (buf.byteLength === 0 || buf.byteLength > MAX_UPLOAD_BYTES) {
+    throw new Error(
+      `File "${file.name}" must be between 1 byte and ${Math.round(MAX_UPLOAD_BYTES / (1024 * 1024))} MB.`
+    );
+  }
+  const bytes = new Uint8Array(buf);
+  const chunkSize = 0x8000;
+  let binary = '';
+  for (let i = 0; i < bytes.length; i += chunkSize) {
+    binary += String.fromCharCode(...bytes.subarray(i, i + chunkSize));
+  }
+  return btoa(binary);
 }
 
 const INITIAL_BUSY: StudioBusyState = {
@@ -37,6 +93,7 @@ export function useStudio() {
   const [previewRev, setPreviewRev] = useState(0);
   const [videoRev, setVideoRev] = useState(0);
   const [renderProgress, setRenderProgress] = useState<RenderProgressPayload | null>(null);
+  const [lastRenderResult, setLastRenderResult] = useState<RenderProjectResult | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
   const [busy, setBusy] = useState<StudioBusyState>(INITIAL_BUSY);
@@ -130,6 +187,24 @@ export function useStudio() {
     };
   }, [endBusy]);
 
+  const refreshProjects = useCallback(async (): Promise<ProjectSummary[] | null> => {
+    const seqSnapshot = projectSeqRef.current;
+    const token = beginBusy('loadingList');
+    try {
+      const list = await invoke<ProjectSummary[]>('project_list');
+      if (unmountedRef.current || projectSeqRef.current !== seqSnapshot) return null;
+      setProjects(list);
+      return list;
+    } catch (err: unknown) {
+      if (!unmountedRef.current) {
+        setError(toErrorMessage(err));
+      }
+      return null;
+    } finally {
+      endBusy('loadingList', token);
+    }
+  }, [beginBusy, endBusy]);
+
   const selectProject = useCallback(
     async (projectId: string): Promise<ProjectDetail | null> => {
       const seq = ++projectSeqRef.current;
@@ -158,7 +233,11 @@ export function useStudio() {
   );
 
   const createProject = useCallback(
-    async (name: string, prompt: string): Promise<ProjectDetail | null> => {
+    async (
+      name: string,
+      prompt: string,
+      options?: ProjectCreateOptions
+    ): Promise<ProjectDetail | null> => {
       const trimmedName = name.trim();
       const trimmedPrompt = prompt.trim();
       if (!trimmedName || !trimmedPrompt) {
@@ -170,8 +249,17 @@ export function useStudio() {
       const token = beginBusy('creating');
       setError(null);
       try {
+        const input: Record<string, unknown> = {
+          name: trimmedName,
+          prompt: trimmedPrompt,
+        };
+        if (options?.width !== undefined) input.width = options.width;
+        if (options?.height !== undefined) input.height = options.height;
+        if (options?.fps !== undefined) input.fps = options.fps;
+        if (options?.preferredEngine !== undefined) input.preferredEngine = options.preferredEngine;
+
         const created = await invoke<CreateProjectResult>('project_create_from_prompt', {
-          input: { name: trimmedName, prompt: trimmedPrompt },
+          input,
         });
         if (unmountedRef.current || seq !== projectSeqRef.current) return null;
 
@@ -206,6 +294,57 @@ export function useStudio() {
     [beginBusy, endBusy]
   );
 
+  const saveProjectDraft = useCallback(
+    async (updatedProject: ProjectDetail, customStatusMessage?: string): Promise<ProjectDetail | null> => {
+      const targetProjectId = updatedProject.id;
+      const targetSeq = projectSeqRef.current;
+
+      const token = beginBusy('saving');
+      setError(null);
+      try {
+        const saved = await invoke<ProjectDetail>('project_save', { project: updatedProject });
+        if (unmountedRef.current) return null;
+        setProjects((prev) =>
+          prev.map((item) =>
+            item.id === saved.id
+              ? {
+                  ...item,
+                  name: saved.name,
+                  prompt: saved.prompt,
+                  status: saved.status,
+                  preferredEngine: saved.preferredEngine,
+                  width: saved.width,
+                  height: saved.height,
+                  fps: saved.fps,
+                  updatedAt: saved.updatedAt,
+                }
+              : item
+          )
+        );
+        if (
+          activeProjectRef.current?.id === targetProjectId &&
+          projectSeqRef.current === targetSeq
+        ) {
+          setActiveProject(saved);
+          setStatusMessage(customStatusMessage ?? `Saved project "${saved.name}".`);
+        }
+        return saved;
+      } catch (err: unknown) {
+        if (
+          !unmountedRef.current &&
+          projectSeqRef.current === targetSeq &&
+          (!activeProjectRef.current || activeProjectRef.current.id === targetProjectId)
+        ) {
+          setError(toErrorMessage(err));
+        }
+        return null;
+      } finally {
+        endBusy('saving', token);
+      }
+    },
+    [beginBusy, endBusy]
+  );
+
   const saveSceneTitle = useCallback(
     async (sceneId: string, title: string): Promise<ProjectDetail | null> => {
       const current = activeProjectRef.current;
@@ -219,8 +358,6 @@ export function useStudio() {
         return null;
       }
 
-      const targetProjectId = current.id;
-      const targetSeq = projectSeqRef.current;
       const updatedProject: ProjectDetail = {
         ...current,
         scenes: current.scenes.map((scene) =>
@@ -228,38 +365,9 @@ export function useStudio() {
         ),
       };
 
-      const token = beginBusy('saving');
-      setError(null);
-      try {
-        const saved = await invoke<ProjectDetail>('project_save', { project: updatedProject });
-        if (unmountedRef.current) return null;
-        setProjects((prev) =>
-          prev.map((item) =>
-            item.id === saved.id
-              ? { ...item, name: saved.name, status: saved.status, updatedAt: saved.updatedAt }
-              : item
-          )
-        );
-        if (projectSeqRef.current !== targetSeq || activeProjectRef.current?.id !== targetProjectId) {
-          return null;
-        }
-        setActiveProject(saved);
-        setStatusMessage(`Saved scene "${trimmedTitle}".`);
-        return saved;
-      } catch (err: unknown) {
-        if (
-          !unmountedRef.current &&
-          projectSeqRef.current === targetSeq &&
-          activeProjectRef.current?.id === targetProjectId
-        ) {
-          setError(toErrorMessage(err));
-        }
-        return null;
-      } finally {
-        endBusy('saving', token);
-      }
+      return saveProjectDraft(updatedProject, `Saved scene "${trimmedTitle}".`);
     },
-    [beginBusy, endBusy]
+    [saveProjectDraft]
   );
 
   const previewProject = useCallback(
@@ -286,12 +394,23 @@ export function useStudio() {
           return null;
         }
         setPreviewResult(result);
-        setPreviewRev((rev) => rev + 1);
-        setStatusMessage(
-          result.ok
-            ? 'Preview bundle ready.'
-            : `Preview generated with ${result.errors} error(s).`
-        );
+        const hasBundle = Boolean(result.bundleIndexHtml && result.playerHtml);
+        if (hasBundle) {
+          setPreviewRev((rev) => rev + 1);
+          setStatusMessage(
+            result.ok
+              ? 'Preview bundle ready.'
+              : `Preview generated with ${result.errors} error(s).`
+          );
+        } else {
+          setPreviewRev(0);
+          setStatusMessage(
+            result.issues?.[0]?.message ??
+              (result.ok
+                ? 'Engine preview check completed.'
+                : `Preview failed with ${result.errors} error(s).`)
+          );
+        }
         return result;
       } catch (err: unknown) {
         if (
@@ -331,6 +450,7 @@ export function useStudio() {
         projectId: targetProjectId,
       });
       if (unmountedRef.current) return false;
+      setLastRenderResult(result);
       setProjects((prev) =>
         prev.map((item) =>
           item.id === targetProjectId ? { ...item, status: 'rendered' } : item
@@ -340,13 +460,23 @@ export function useStudio() {
         projectSeqRef.current === targetSeq &&
         activeProjectRef.current?.id === targetProjectId
       ) {
-        setVideoRev((rev) => rev + 1);
+        const isSpineJson = result.artifactKind === 'spine_json';
+        if (isSpineJson) {
+          setVideoRev(0);
+        } else {
+          setVideoRev((rev) => rev + 1);
+        }
         setActiveProject((prev) =>
           prev && prev.id === targetProjectId ? { ...prev, status: 'rendered' } : prev
         );
         setRenderProgress(null);
+        const outputName = result.videoPath?.split(/[\\/]/).pop() || 'character-rig.spine.json';
         setStatusMessage(
-          result.renderJob.status === 'completed' ? 'MP4 render completed.' : 'Render finished.'
+          isSpineJson
+            ? `Exported Spine rig JSON (${outputName}).`
+            : result.renderJob.status === 'completed'
+              ? 'MP4 render completed.'
+              : 'Render finished.'
         );
       }
       return true;
@@ -405,6 +535,304 @@ export function useStudio() {
     setError(null);
   }, []);
 
+  const deleteProject = useCallback(async (projectId: string): Promise<boolean> => {
+    setError(null);
+    try {
+      const res = await invoke<DeleteProjectResult>('project_delete', { projectId });
+      if (unmountedRef.current || !res?.deleted) return false;
+      setProjects((prev) => prev.filter((item) => item.id !== projectId));
+      if (activeProjectRef.current?.id === projectId) {
+        projectSeqRef.current += 1;
+        setActiveProject(null);
+        setPreviewResult(null);
+        setPreviewRev(0);
+        setVideoRev(0);
+        setRenderProgress(null);
+      }
+      setStatusMessage(`Deleted project "${projectId}".`);
+      return true;
+    } catch (err: unknown) {
+      if (!unmountedRef.current) setError(toErrorMessage(err));
+      return false;
+    }
+  }, []);
+
+  const duplicateProject = useCallback(
+    async (projectId: string, newName?: string): Promise<ProjectDetail | null> => {
+      const seq = ++projectSeqRef.current;
+      const token = beginBusy('creating');
+      setError(null);
+      try {
+        const res = await invoke<CreateProjectResult>('project_duplicate', {
+          projectId,
+          ...(newName ? { newName } : {}),
+        });
+        if (unmountedRef.current || seq !== projectSeqRef.current) return null;
+        setActiveProject(res.project);
+        setPreviewResult(null);
+        setPreviewRev(0);
+        setVideoRev(0);
+        setRenderProgress(null);
+        setProjects((prev) => [
+          projectToSummary(res.project),
+          ...prev.filter((item) => item.id !== res.project.id),
+        ]);
+        setStatusMessage(`Duplicated project "${res.project.name}".`);
+        return res.project;
+      } catch (err: unknown) {
+        if (!unmountedRef.current && seq === projectSeqRef.current) setError(toErrorMessage(err));
+        return null;
+      } finally {
+        endBusy('creating', token);
+      }
+    },
+    [beginBusy, endBusy]
+  );
+
+  const importProject = useCallback(
+    async (projectJson: unknown): Promise<ProjectDetail | null> => {
+      const seq = ++projectSeqRef.current;
+      const token = beginBusy('creating');
+      setError(null);
+      try {
+        const res = await invoke<CreateProjectResult>('project_import', { project: projectJson });
+        if (unmountedRef.current || seq !== projectSeqRef.current) return null;
+        setActiveProject(res.project);
+        setPreviewResult(null);
+        setPreviewRev(0);
+        setVideoRev(0);
+        setRenderProgress(null);
+        setProjects((prev) => [
+          projectToSummary(res.project),
+          ...prev.filter((item) => item.id !== res.project.id),
+        ]);
+        setStatusMessage(`Imported project "${res.project.name}".`);
+        return res.project;
+      } catch (err: unknown) {
+        if (!unmountedRef.current && seq === projectSeqRef.current) setError(toErrorMessage(err));
+        return null;
+      } finally {
+        endBusy('creating', token);
+      }
+    },
+    [beginBusy, endBusy]
+  );
+
+  const listRenderJobs = useCallback(async (projectId?: string): Promise<RenderJobRecord[]> => {
+    try {
+      const res = await invoke<RenderJobRecord[]>(
+        'project_list_render_jobs',
+        projectId ? { projectId } : {}
+      );
+      return Array.isArray(res) ? res : [];
+    } catch (err: unknown) {
+      if (!unmountedRef.current) setError(toErrorMessage(err));
+      return [];
+    }
+  }, []);
+
+  const listWorkspaceAssets = useCallback(
+    async (projectId?: string): Promise<WorkspaceAssetsResult | null> => {
+      setError(null);
+      try {
+        const res = await invoke<WorkspaceAssetsResult>(
+          'project_assets_list',
+          projectId ? { projectId } : {}
+        );
+        return res ?? null;
+      } catch (err: unknown) {
+        if (!unmountedRef.current) setError(toErrorMessage(err));
+        return null;
+      }
+    },
+    []
+  );
+
+  const importAssetFromWorkspace = useCallback(
+    async (
+      projectId: string,
+      sourcePath: string,
+      options?: { name?: string; assetType?: AssetType; confirmOverwrite?: boolean }
+    ): Promise<ImportAssetResult | null> => {
+      const targetSeq = projectSeqRef.current;
+      const token = beginBusy('saving');
+      setError(null);
+      try {
+        const res = await invoke<ImportAssetResult>('project_import_asset', {
+          projectId,
+          sourcePath,
+          ...(options?.name ? { name: options.name } : {}),
+          ...(options?.assetType ? { assetType: options.assetType } : {}),
+          ...(options?.confirmOverwrite !== undefined
+            ? { confirmOverwrite: options.confirmOverwrite }
+            : {}),
+        });
+        if (!unmountedRef.current && res?.project) {
+          setProjects((prev) =>
+            prev.map((item) => (item.id === res.project.id ? projectToSummary(res.project) : item))
+          );
+          if (
+            activeProjectRef.current?.id === res.project.id &&
+            projectSeqRef.current === targetSeq
+          ) {
+            setActiveProject(res.project);
+          }
+          setStatusMessage(`Imported asset "${res.asset.name}".`);
+        }
+        return res ?? null;
+      } catch (err: unknown) {
+        if (!unmountedRef.current) setError(toErrorMessage(err));
+        return null;
+      } finally {
+        endBusy('saving', token);
+      }
+    },
+    [beginBusy, endBusy]
+  );
+
+  const importAssetFile = useCallback(
+    async (
+      projectId: string,
+      file: File,
+      options?: { name?: string; assetType?: AssetType; confirmOverwrite?: boolean }
+    ): Promise<ImportAssetResult | null> => {
+      const targetSeq = projectSeqRef.current;
+      const token = beginBusy('saving');
+      setError(null);
+      try {
+        const dataBase64 = await fileToBase64(file);
+        const res = await invoke<ImportAssetResult>('project_import_asset_bytes', {
+          projectId,
+          fileName: file.name,
+          dataBase64,
+          ...(options?.name ? { name: options.name } : {}),
+          ...(options?.assetType ? { assetType: options.assetType } : {}),
+          ...(options?.confirmOverwrite !== undefined
+            ? { confirmOverwrite: options.confirmOverwrite }
+            : {}),
+        });
+        if (!unmountedRef.current && res?.project) {
+          setProjects((prev) =>
+            prev.map((item) => (item.id === res.project.id ? projectToSummary(res.project) : item))
+          );
+          if (
+            activeProjectRef.current?.id === res.project.id &&
+            projectSeqRef.current === targetSeq
+          ) {
+            setActiveProject(res.project);
+          }
+          setStatusMessage(`Imported asset "${res.asset.name}".`);
+        }
+        return res ?? null;
+      } catch (err: unknown) {
+        if (!unmountedRef.current) setError(toErrorMessage(err));
+        return null;
+      } finally {
+        endBusy('saving', token);
+      }
+    },
+    [beginBusy, endBusy]
+  );
+
+  const runDeterministicAgentAction = useCallback(
+    async (projectId: string, agent: DeterministicAgentKind): Promise<AgentRunResult | null> => {
+      const targetSeq = projectSeqRef.current;
+      const token = beginBusy('saving');
+      setError(null);
+      try {
+        const res = await invoke<AgentRunResult>('run_deterministic_agent', { projectId, agent });
+        if (!unmountedRef.current && res?.project) {
+          setProjects((prev) =>
+            prev.map((item) => (item.id === res.project.id ? projectToSummary(res.project) : item))
+          );
+          if (
+            activeProjectRef.current?.id === res.project.id &&
+            projectSeqRef.current === targetSeq
+          ) {
+            setActiveProject(res.project);
+          }
+          setStatusMessage(res.summary);
+        }
+        return res ?? null;
+      } catch (err: unknown) {
+        if (!unmountedRef.current) setError(toErrorMessage(err));
+        return null;
+      } finally {
+        endBusy('saving', token);
+      }
+    },
+    [beginBusy, endBusy]
+  );
+
+  const getDiskConfig = useCallback(async (): Promise<ConfigResult | null> => {
+    try {
+      const res = await invoke<ConfigResult>('config_get');
+      return res && typeof res === 'object' && res.config ? res : null;
+    } catch {
+      return null;
+    }
+  }, []);
+
+  const saveDiskConfig = useCallback(
+    async (config: StudioDiskConfig): Promise<ConfigResult | null> => {
+      try {
+        const res = await invoke<ConfigResult>('config_save', { config });
+        if (!unmountedRef.current && res) {
+          setStatusMessage('Saved studio configuration to disk.');
+        }
+        return res ?? null;
+      } catch (err: unknown) {
+        if (!unmountedRef.current) setError(toErrorMessage(err));
+        return null;
+      }
+    },
+    []
+  );
+
+  const probePreviewServer = useCallback(async (): Promise<PreviewServerProbeResult | null> => {
+    try {
+      const res = await invoke<PreviewServerProbeResult>('probe_preview_server');
+      return res ?? null;
+    } catch (err: unknown) {
+      if (!unmountedRef.current) setError(toErrorMessage(err));
+      return null;
+    }
+  }, []);
+
+  const revealInWorkspace = useCallback(async (path: string): Promise<string | null> => {
+    setError(null);
+    try {
+      const resolved = await invoke<string>('reveal_in_workspace', { path });
+      if (!unmountedRef.current) {
+        setStatusMessage(`Revealed ${path}.`);
+      }
+      return resolved ?? null;
+    } catch (err: unknown) {
+      if (!unmountedRef.current) setError(toErrorMessage(err));
+      return null;
+    }
+  }, []);
+
+  const applyExternalProjectSave = useCallback((saved: ProjectDetail) => {
+    setProjects((prev) =>
+      prev.map((item) =>
+        item.id === saved.id
+          ? {
+              ...item,
+              name: saved.name,
+              prompt: saved.prompt,
+              status: saved.status,
+              width: saved.width,
+              height: saved.height,
+              fps: saved.fps,
+              updatedAt: saved.updatedAt,
+            }
+          : item
+      )
+    );
+    setActiveProject((curr) => (curr && curr.id === saved.id ? saved : curr));
+  }, []);
+
   const bundleUrl =
     previewBaseUrl && activeProject && previewRev > 0
       ? `${previewBaseUrl}/projects/${activeProject.id}/bundle/index.html?v=${previewRev}`
@@ -432,15 +860,31 @@ export function useStudio() {
     playerScriptUrl,
     videoUrl,
     renderProgress,
+    lastRenderResult,
     error,
     statusMessage,
     busy,
+    refreshProjects,
     selectProject,
     createProject,
+    saveProjectDraft,
     saveSceneTitle,
     previewProject,
     renderProject,
     cancelRender,
+    deleteProject,
+    duplicateProject,
+    importProject,
+    listRenderJobs,
+    listWorkspaceAssets,
+    importAssetFromWorkspace,
+    importAssetFile,
+    runDeterministicAgentAction,
+    getDiskConfig,
+    saveDiskConfig,
+    probePreviewServer,
+    revealInWorkspace,
+    applyExternalProjectSave,
     clearError,
   };
 }

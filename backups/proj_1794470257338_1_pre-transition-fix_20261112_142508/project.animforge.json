@@ -1,0 +1,292 @@
+{
+  "projectId": "proj_1794470257338_1",
+  "config": {
+    "name": "Dancer",
+    "prompt": "cartoon dancer",
+    "width": 1280,
+    "height": 720,
+    "fps": 30,
+    "preferredEngine": "givemotion"
+  },
+  "characters": [
+    {
+      "id": "char_pip",
+      "name": "Pip",
+      "description": "Cute little green cartoon alien/creature with expressive big eyes",
+      "colorPalette": [
+        "#22c55e",
+        "#16a34a",
+        "#86efac",
+        "#15803d",
+        "#ffffff"
+      ],
+      "parts": [
+        {
+          "id": "torso",
+          "name": "Torso",
+          "layerName": "body_torso",
+          "pivot": {
+            "x": 0.5,
+            "y": 0.8
+          },
+          "zIndex": 10
+        },
+        {
+          "id": "head",
+          "name": "Head",
+          "layerName": "body_head",
+          "pivot": {
+            "x": 0.5,
+            "y": 0.9
+          },
+          "zIndex": 20,
+          "parentPartId": "torso"
+        },
+        {
+          "id": "eye_left",
+          "name": "Left Eye",
+          "layerName": "face_eye_l",
+          "pivot": {
+            "x": 0.5,
+            "y": 0.5
+          },
+          "zIndex": 22,
+          "parentPartId": "head"
+        },
+        {
+          "id": "eye_right",
+          "name": "Right Eye",
+          "layerName": "face_eye_r",
+          "pivot": {
+            "x": 0.5,
+            "y": 0.5
+          },
+          "zIndex": 22,
+          "parentPartId": "head"
+        },
+        {
+          "id": "mouth",
+          "name": "Mouth",
+          "layerName": "face_mouth",
+          "pivot": {
+            "x": 0.5,
+            "y": 0.5
+          },
+          "zIndex": 23,
+          "parentPartId": "head"
+        },
+        {
+          "id": "arm_left",
+          "name": "Left Arm",
+          "layerName": "limb_arm_l",
+          "pivot": {
+            "x": 0.8,
+            "y": 0.2
+          },
+          "zIndex": 5,
+          "parentPartId": "torso"
+        },
+        {
+          "id": "arm_right",
+          "name": "Right Arm",
+          "layerName": "limb_arm_r",
+          "pivot": {
+            "x": 0.2,
+            "y": 0.2
+          },
+          "zIndex": 25,
+          "parentPartId": "torso"
+        },
+        {
+          "id": "leg_left",
+          "name": "Left Leg",
+          "layerName": "limb_leg_l",
+          "pivot": {
+            "x": 0.5,
+            "y": 0.1
+          },
+          "zIndex": 8,
+          "parentPartId": "torso"
+        },
+        {
+          "id": "leg_right",
+          "name": "Right Leg",
+          "layerName": "limb_leg_r",
+          "pivot": {
+            "x": 0.5,
+            "y": 0.1
+          },
+          "zIndex": 8,
+          "parentPartId": "torso"
+        }
+      ]
+    }
+  ],
+  "scenes": [
+    {
+      "id": "scene_1",
+      "projectId": "proj_1794470257338_1",
+      "sequenceIndex": 0,
+      "title": "Arrival & Wonder",
+      "description": "A cute green cartoon character enters the cozy room and looks around curiously.",
+      "duration": 4,
+      "characterIds": [
+        "char_pip"
+      ],
+      "transition": {
+        "type": "fade",
+        "duration": 0.5
+      },
+      "timeline": {
+        "duration": 4,
+        "fps": 30,
+        "characterActions": [
+          {
+            "actionId": "act_walk_in",
+            "name": "walk",
+            "startTime": 0,
+            "duration": 2,
+            "parameters": {
+              "speed": 1.2
+            }
+          },
+          {
+            "actionId": "act_look",
+            "name": "look_around",
+            "startTime": 2,
+            "duration": 1.5,
+            "parameters": {
+              "angle": 25
+            }
+          },
+          {
+            "actionId": "act_blink_1",
+            "name": "blink",
+            "startTime": 1.2,
+            "duration": 0.3,
+            "parameters": {}
+          }
+        ],
+        "cameraMoves": [
+          {
+            "type": "static",
+            "startX": 0,
+            "startY": 0,
+            "endX": 0,
+            "endY": 0,
+            "startZoom": 1,
+            "endZoom": 1,
+            "easing": "linear",
+            "duration": 4
+          }
+        ],
+        "audioTracks": []
+      }
+    },
+    {
+      "id": "scene_2",
+      "projectId": "proj_1794470257338_1",
+      "sequenceIndex": 1,
+      "title": "Friendly Wave & Discovery",
+      "description": "Character notices the audience, smiles broadly, and gives a cheerful hand wave.",
+      "duration": 4,
+      "characterIds": [
+        "char_pip"
+      ],
+      "transition": {
+        "type": "dissolve",
+        "duration": 0.5
+      },
+      "timeline": {
+        "duration": 4,
+        "fps": 30,
+        "characterActions": [
+          {
+            "actionId": "act_wave",
+            "name": "wave",
+            "startTime": 0.5,
+            "duration": 2.5,
+            "parameters": {
+              "arm": "right",
+              "cycles": 3
+            }
+          },
+          {
+            "actionId": "act_smile",
+            "name": "smile",
+            "startTime": 0.8,
+            "duration": 3,
+            "parameters": {
+              "intensity": 1
+            }
+          },
+          {
+            "actionId": "act_blink_2",
+            "name": "blink",
+            "startTime": 2.2,
+            "duration": 0.3,
+            "parameters": {}
+          }
+        ],
+        "cameraMoves": [
+          {
+            "type": "zoom",
+            "startX": 0,
+            "startY": 0,
+            "endX": 0,
+            "endY": 0,
+            "startZoom": 1,
+            "endZoom": 1.15,
+            "easing": "ease-in-out",
+            "duration": 4
+          }
+        ],
+        "audioTracks": []
+      }
+    },
+    {
+      "id": "scene_3",
+      "projectId": "proj_1794470257338_1",
+      "sequenceIndex": 2,
+      "title": "The Glowing Door",
+      "description": "A magical glowing door illuminates at the back; character turns and walks toward the light.",
+      "duration": 4.5,
+      "characterIds": [
+        "char_pip"
+      ],
+      "transition": {
+        "type": "dissolve",
+        "duration": 0.5
+      },
+      "timeline": {
+        "duration": 4.5,
+        "fps": 30,
+        "characterActions": [
+          {
+            "actionId": "act_turn",
+            "name": "walk",
+            "startTime": 0.5,
+            "duration": 4,
+            "parameters": {
+              "direction": "forward_away"
+            }
+          }
+        ],
+        "cameraMoves": [
+          {
+            "type": "push",
+            "startX": 0,
+            "startY": 0,
+            "endX": 30,
+            "endY": -20,
+            "startZoom": 1,
+            "endZoom": 1.2,
+            "easing": "ease-in-out",
+            "duration": 4.5
+          }
+        ],
+        "audioTracks": []
+      }
+    }
+  ]
+}

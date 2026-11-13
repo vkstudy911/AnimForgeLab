@@ -301,3 +301,104 @@ test('compileProjectHtml and buildCharacterSvg handle missing characters and emp
     /Invalid scene id/
   );
 });
+
+test('compileProjectHtml compiles safe background images and non-muted audio cues while blocking unsafe URIs', () => {
+  const html = compileProjectHtml({
+    projectId: 'proj_media',
+    config: SAMPLE_CONFIG,
+    characters: [SAMPLE_CHARACTER],
+    assets: [
+      {
+        id: 'bg_safe',
+        name: 'Meadow',
+        type: 'background',
+        uri: 'assets/meadow.png',
+        metadata: {},
+        createdAt: new Date().toISOString(),
+      },
+      {
+        id: 'bg_evil',
+        name: 'Evil',
+        type: 'background',
+        uri: '../../etc/passwd.png',
+        metadata: {},
+        createdAt: new Date().toISOString(),
+      },
+      {
+        id: 'bg_encoded_evil',
+        name: 'EncodedEvil',
+        type: 'background',
+        uri: 'assets/%2e%2e/foo.png',
+        metadata: {},
+        createdAt: new Date().toISOString(),
+      },
+      {
+        id: 'aud_ok',
+        name: 'Chime',
+        type: 'audio',
+        uri: 'assets/chime.wav',
+        metadata: {},
+        createdAt: new Date().toISOString(),
+      },
+      {
+        id: 'aud_muted',
+        name: 'MutedTrack',
+        type: 'audio',
+        uri: 'assets/muted.mp3',
+        metadata: {},
+        createdAt: new Date().toISOString(),
+      },
+    ],
+    scenes: [
+      {
+        ...SAMPLE_SCENES[0],
+        projectId: 'proj_media',
+        backgroundAssetId: 'bg_safe',
+        timeline: {
+          ...SAMPLE_SCENES[0].timeline,
+          audioTracks: [
+            { assetId: 'aud_ok', startTime: 0.5, volume: 0.8, loop: true },
+            { assetId: 'aud_muted', startTime: 1, volume: 0.5, loop: false, muted: true },
+          ],
+        },
+      },
+      {
+        ...SAMPLE_SCENES[1],
+        projectId: 'proj_media',
+        backgroundAssetId: 'bg_evil',
+        timeline: {
+          ...SAMPLE_SCENES[1].timeline,
+          audioTracks: [{ assetId: 'aud_missing_ref', startTime: 0, volume: 1, loop: false }],
+        },
+      },
+    ],
+  });
+
+  assert.ok(html.includes('<img class="scene-bg" src="assets/meadow.png"'));
+  assert.ok(html.includes('<audio src="assets/chime.wav" data-start="0.5" data-volume="0.8" loop preload="auto"></audio>'));
+  assert.ok(!html.includes('assets/muted.mp3'));
+  assert.ok(!html.includes('passwd.png'));
+  assert.ok(!html.includes('foo.png'));
+  assert.ok(!html.includes('aud_missing_ref'));
+  assert.equal((html.match(/<img class="scene-bg"/g) ?? []).length, 1);
+  assert.equal((html.match(/<audio /g) ?? []).length, 1);
+
+  const htmlEncoded = compileProjectHtml({
+    projectId: 'proj_encoded',
+    config: SAMPLE_CONFIG,
+    characters: [],
+    assets: [
+      {
+        id: 'bg_encoded',
+        name: 'Encoded',
+        type: 'background',
+        uri: 'assets/%2e%2e/foo.png',
+        metadata: {},
+        createdAt: new Date().toISOString(),
+      },
+    ],
+    scenes: [{ ...SAMPLE_SCENES[0], projectId: 'proj_encoded', backgroundAssetId: 'bg_encoded' }],
+  });
+  assert.ok(!htmlEncoded.includes('foo.png'));
+  assert.equal((htmlEncoded.match(/<img class="scene-bg"/g) ?? []).length, 0);
+});

@@ -1,6 +1,7 @@
+use serde::Serialize;
 use std::fs::{self, File};
 use std::io::{ErrorKind, Read, Seek, SeekFrom, Write};
-use std::net::{Shutdown, TcpListener, TcpStream};
+use std::net::{Shutdown, SocketAddr, TcpListener, TcpStream};
 use std::path::{Component, Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
@@ -454,9 +455,94 @@ impl Drop for PreviewServer {
     }
 }
 
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct PreviewServerProbeResult {
+    pub reachable: bool,
+    pub base_url: String,
+    pub latency_ms: u64,
+    pub status_code: Option<u16>,
+    pub error: Option<String>,
+}
+
 #[tauri::command]
 pub fn get_preview_base_url(state: tauri::State<'_, Arc<PreviewServer>>) -> String {
     state.base_url()
+}
+
+pub fn probe_loopback_health(port: u16, base_url: &str) -> PreviewServerProbeResult {
+    let started = Instant::now();
+    let addr = SocketAddr::from(([127, 0, 0, 1], port));
+    let mut stream = match TcpStream::connect_timeout(&addr, Duration::from_secs(2)) {
+        Ok(s) => s,
+        Err(err) => {
+            return PreviewServerProbeResult {
+                reachable: false,
+                base_url: base_url.to_string(),
+                latency_ms: started.elapsed().as_millis() as u64,
+                status_code: None,
+                error: Some(format!("Connection failed: {err}")),
+            };
+        }
+    };
+    let _ = stream.set_read_timeout(Some(Duration::from_secs(2)));
+    let _ = stream.set_write_timeout(Some(Duration::from_secs(2)));
+    let req = format!(
+        "GET /__health HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\nConnection: close\r\n\r\n"
+    );
+    if let Err(err) = stream.write_all(req.as_bytes()).and_then(|()| stream.flush()) {
+        return PreviewServerProbeResult {
+            reachable: false,
+            base_url: base_url.to_string(),
+            latency_ms: started.elapsed().as_millis() as u64,
+            status_code: None,
+            error: Some(format!("Write failed: {err}")),
+        };
+    }
+
+    let mut resp_buf = [0u8; 512];
+    let n = match stream.read(&mut resp_buf) {
+        Ok(n) => n,
+        Err(err) => {
+            return PreviewServerProbeResult {
+                reachable: false,
+                base_url: base_url.to_string(),
+                latency_ms: started.elapsed().as_millis() as u64,
+                status_code: None,
+                error: Some(format!("Read failed: {err}")),
+            };
+        }
+    };
+
+    let head = String::from_utf8_lossy(&resp_buf[..n]);
+    let status_code = head
+        .lines()
+        .next()
+        .and_then(|l| l.split_whitespace().nth(1))
+        .and_then(|s| s.parse::<u16>().ok());
+    let reachable = status_code == Some(200);
+    PreviewServerProbeResult {
+        reachable,
+        base_url: base_url.to_string(),
+        latency_ms: started.elapsed().as_millis() as u64,
+        status_code,
+        error: if reachable {
+            None
+        } else {
+            Some(format!("Unexpected health status: {status_code:?}"))
+        },
+    }
+}
+
+#[tauri::command]
+pub async fn probe_preview_server(
+    state: tauri::State<'_, Arc<PreviewServer>>,
+) -> Result<PreviewServerProbeResult, String> {
+    let port = state.port();
+    let base_url = state.base_url();
+    tauri::async_runtime::spawn_blocking(move || probe_loopback_health(port, &base_url))
+        .await
+        .map_err(|err| format!("probe_preview_server task failed: {err}"))
 }
 
 fn find_earliest_header_end(buf: &[u8]) -> Option<usize> {
@@ -944,6 +1030,26 @@ fn handle_client(
         return;
     }
 
+    if target == "/__health" || target.starts_with("/__health?") {
+        let body = b"{\"ok\":true}";
+        let head = format!(
+            "HTTP/1.1 200 OK\r\n\
+             Content-Type: application/json; charset=utf-8\r\n\
+             Content-Length: {}\r\n\
+             X-Content-Type-Options: nosniff\r\n\
+             Cache-Control: no-store\r\n\
+             Connection: close\r\n\r\n",
+            body.len()
+        );
+        let _ = stream.write_all(head.as_bytes());
+        if include_body {
+            let _ = stream.write_all(body);
+        }
+        let _ = stream.flush();
+        let _ = stream.shutdown(Shutdown::Both);
+        return;
+    }
+
     let asset = match resolve_safe_asset(workspace_root, target) {
         Ok(asset) => asset,
         Err(AssetResolveError::BadRequest(msg)) => {
@@ -1336,6 +1442,10 @@ mod tests {
         let port = server.port();
         assert_ne!(port, 0);
         assert_eq!(server.base_url(), format!("http://127.0.0.1:{port}"));
+
+        let probe = probe_loopback_health(port, &server.base_url());
+        assert!(probe.reachable, "health probe must reach loopback server");
+        assert_eq!(probe.status_code, Some(200));
 
         // 1. Authorized HTML sets frame-ancestors CSP; JS omits frame-ancestors; allowed Origins succeed.
         let req_html = format!(

@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type {
   GiveMotionPreviewResult,
@@ -304,5 +304,77 @@ describe('PreviewStage', () => {
       expect(screen.getByText('Loading')).toBeTruthy();
       expect(screen.queryByText('Playing')).toBeNull();
     });
+  });
+
+  it('supports Stop, +/-1 frame stepping using project fps, Mute, Loop, Playback Speed, and registers StageControlsApi', async () => {
+    const loader = vi.fn().mockResolvedValue(undefined);
+    const onPlayheadChange = vi.fn();
+    const onRegisterControls = vi.fn();
+
+    const { container, unmount } = render(
+      <PreviewStage
+        project={SAMPLE_PROJECT}
+        previewResult={SAMPLE_PREVIEW}
+        previewRev={1}
+        bundleUrl={null}
+        playerScriptUrl={null}
+        videoUrl="http://127.0.0.1:49152/projects/proj_stage/output.mp4?v=1"
+        previewing={false}
+        rendering={false}
+        cancelling={false}
+        renderProgress={null}
+        onPreview={vi.fn()}
+        onRender={vi.fn()}
+        onCancelRender={vi.fn()}
+        loadPlayerScript={loader}
+        playheadTime={1.0}
+        onPlayheadChange={onPlayheadChange}
+        onRegisterControls={onRegisterControls}
+      />
+    );
+
+    const video = container.querySelector('video') as HTMLVideoElement;
+    const pauseSpy = vi.spyOn(video, 'pause').mockImplementation(() => {});
+    const playSpy = vi.spyOn(video, 'play').mockResolvedValue(undefined);
+
+    expect(onRegisterControls).toHaveBeenCalledTimes(1);
+    const controlsApi = onRegisterControls.mock.calls[0][0];
+    expect(controlsApi).toBeTruthy();
+
+    // Frame step +1 and -1 at 30fps (1/30s = 0.0333s)
+    fireEvent.click(screen.getByRole('button', { name: 'Step forward 1 frame' }));
+    expect(onPlayheadChange).toHaveBeenLastCalledWith(Number((1 + 1 / 30).toFixed(4)));
+
+    fireEvent.click(screen.getByRole('button', { name: 'Step back 1 frame' }));
+    expect(onPlayheadChange).toHaveBeenLastCalledWith(Number((1 - 1 / 30).toFixed(4)));
+
+    // Mute, Loop, and Playback Speed sync to media element
+    fireEvent.click(screen.getByRole('button', { name: 'Mute stage audio' }));
+    expect(video.muted).toBe(true);
+    expect(screen.getByRole('button', { name: 'Unmute stage audio' }).getAttribute('aria-pressed')).toBe(
+      'true'
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: 'Loop playback' }));
+    expect(video.loop).toBe(true);
+    expect(screen.getByRole('button', { name: 'Loop playback' }).getAttribute('aria-pressed')).toBe('true');
+
+    fireEvent.change(screen.getByLabelText('Playback speed'), { target: { value: '2' } });
+    expect(video.playbackRate).toBe(2);
+
+    // Imperative StageControlsApi Play -> Stop seeks to 0 and pauses
+    act(() => {
+      controlsApi.togglePlayPause();
+    });
+    expect(playSpy).toHaveBeenCalledTimes(1);
+
+    act(() => {
+      controlsApi.stop();
+    });
+    expect(pauseSpy).toHaveBeenCalledTimes(1);
+    expect(onPlayheadChange).toHaveBeenLastCalledWith(0);
+
+    unmount();
+    expect(onRegisterControls).toHaveBeenLastCalledWith(null);
   });
 });

@@ -20,6 +20,8 @@ pub struct ProjectSummary {
     pub name: String,
     pub prompt: String,
     pub status: String,
+    #[serde(default)]
+    pub preferred_engine: Option<String>,
     pub width: u32,
     pub height: u32,
     pub fps: u32,
@@ -72,6 +74,17 @@ pub struct GiveMotionPreviewResult {
 pub struct RenderProjectResult {
     pub render_job: serde_json::Value,
     pub video_path: String,
+    #[serde(default)]
+    pub ffprobe: Option<serde_json::Value>,
+    #[serde(default)]
+    pub artifact_kind: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct DeleteProjectResult {
+    pub project_id: String,
+    pub deleted: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -677,6 +690,148 @@ impl WorkerBridge {
         serde_json::from_value(res).map_err(|err| format!("Invalid cancel_render response: {err}"))
     }
 
+    pub fn delete_project(&self, project_id: &str) -> Result<DeleteProjectResult, String> {
+        let safe_id = validate_safe_id(project_id, "project")?;
+        let res = self.call_json(
+            "delete_project",
+            serde_json::json!({ "projectId": safe_id }),
+            Duration::from_secs(20),
+        )?;
+        serde_json::from_value(res)
+            .map_err(|err| format!("Invalid delete_project response: {err}"))
+    }
+
+    pub fn duplicate_project(
+        &self,
+        project_id: &str,
+        new_name: Option<&str>,
+    ) -> Result<CreateProjectResult, String> {
+        let safe_id = validate_safe_id(project_id, "project")?;
+        let mut params = serde_json::json!({ "projectId": safe_id });
+        if let Some(name) = new_name.map(str::trim).filter(|n| !n.is_empty()) {
+            params["newName"] = serde_json::Value::String(name.to_string());
+        }
+        let res = self.call_json("duplicate_project", params, Duration::from_secs(30))?;
+        serde_json::from_value(res)
+            .map_err(|err| format!("Invalid duplicate_project response: {err}"))
+    }
+
+    pub fn import_project(&self, project: serde_json::Value) -> Result<CreateProjectResult, String> {
+        let raw_id = project
+            .get("id")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| "Imported project object missing string id".to_string())?;
+        validate_safe_id(raw_id, "project")?;
+        let res = self.call_json(
+            "import_project",
+            serde_json::json!({ "project": project }),
+            Duration::from_secs(30),
+        )?;
+        serde_json::from_value(res)
+            .map_err(|err| format!("Invalid import_project response: {err}"))
+    }
+
+    pub fn list_render_jobs(
+        &self,
+        project_id: Option<&str>,
+    ) -> Result<Vec<serde_json::Value>, String> {
+        let mut params = serde_json::json!({});
+        if let Some(pid) = project_id {
+            let safe_id = validate_safe_id(pid, "project")?;
+            params["projectId"] = serde_json::Value::String(safe_id);
+        }
+        let res = self.call_json("list_render_jobs", params, Duration::from_secs(15))?;
+        let jobs = res
+            .get("jobs")
+            .and_then(|v| v.as_array())
+            .cloned()
+            .ok_or_else(|| "Invalid list_render_jobs response: missing jobs array".to_string())?;
+        Ok(jobs)
+    }
+
+    pub fn assets_list(&self, project_id: Option<&str>) -> Result<serde_json::Value, String> {
+        let mut params = serde_json::json!({});
+        if let Some(pid) = project_id {
+            let safe_id = validate_safe_id(pid, "project")?;
+            params["projectId"] = serde_json::Value::String(safe_id);
+        }
+        self.call_json("assets_list", params, Duration::from_secs(15))
+    }
+
+    pub fn import_asset_from_workspace(
+        &self,
+        project_id: &str,
+        source_path: &str,
+        name: Option<&str>,
+        asset_type: Option<&str>,
+        confirm_overwrite: bool,
+    ) -> Result<serde_json::Value, String> {
+        let safe_id = validate_safe_id(project_id, "project")?;
+        let mut params = serde_json::json!({
+            "projectId": safe_id,
+            "sourcePath": source_path,
+            "confirmOverwrite": confirm_overwrite,
+            "allowExternalSource": false,
+        });
+        if let Some(n) = name.map(str::trim).filter(|s| !s.is_empty()) {
+            params["name"] = serde_json::Value::String(n.to_string());
+        }
+        if let Some(t) = asset_type.map(str::trim).filter(|s| !s.is_empty()) {
+            params["assetType"] = serde_json::Value::String(t.to_string());
+        }
+        self.call_json("asset_import", params, Duration::from_secs(30))
+    }
+
+    pub fn import_asset_bytes(
+        &self,
+        project_id: &str,
+        file_name: &str,
+        data_base64: &str,
+        name: Option<&str>,
+        asset_type: Option<&str>,
+        confirm_overwrite: bool,
+    ) -> Result<serde_json::Value, String> {
+        let safe_id = validate_safe_id(project_id, "project")?;
+        let mut params = serde_json::json!({
+            "projectId": safe_id,
+            "fileName": file_name,
+            "dataBase64": data_base64,
+            "confirmOverwrite": confirm_overwrite,
+        });
+        if let Some(n) = name.map(str::trim).filter(|s| !s.is_empty()) {
+            params["name"] = serde_json::Value::String(n.to_string());
+        }
+        if let Some(t) = asset_type.map(str::trim).filter(|s| !s.is_empty()) {
+            params["assetType"] = serde_json::Value::String(t.to_string());
+        }
+        self.call_json("asset_import_bytes", params, Duration::from_secs(30))
+    }
+
+    pub fn run_deterministic_agent(
+        &self,
+        project_id: &str,
+        agent: &str,
+    ) -> Result<serde_json::Value, String> {
+        let safe_id = validate_safe_id(project_id, "project")?;
+        self.call_json(
+            "run_deterministic_agent",
+            serde_json::json!({ "projectId": safe_id, "agent": agent }),
+            Duration::from_secs(30),
+        )
+    }
+
+    pub fn get_config(&self) -> Result<serde_json::Value, String> {
+        self.call_json("get_config", serde_json::json!({}), Duration::from_secs(15))
+    }
+
+    pub fn save_config(&self, config: serde_json::Value) -> Result<serde_json::Value, String> {
+        self.call_json(
+            "save_config",
+            serde_json::json!({ "config": config }),
+            Duration::from_secs(15),
+        )
+    }
+
     pub fn shutdown(&self) {
         self.shutdown_flag.store(true, Ordering::Release);
         let taken = self.process.lock().ok().and_then(|mut g| g.take());
@@ -769,6 +924,145 @@ pub async fn project_cancel_render(
     tauri::async_runtime::spawn_blocking(move || bridge.cancel_render(&project_id))
         .await
         .map_err(|err| format!("project_cancel_render task failed: {err}"))?
+}
+
+#[tauri::command]
+pub async fn project_delete(
+    state: tauri::State<'_, Arc<WorkerBridge>>,
+    project_id: String,
+) -> Result<DeleteProjectResult, String> {
+    let bridge = state.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || bridge.delete_project(&project_id))
+        .await
+        .map_err(|err| format!("project_delete task failed: {err}"))?
+}
+
+#[tauri::command]
+pub async fn project_duplicate(
+    state: tauri::State<'_, Arc<WorkerBridge>>,
+    project_id: String,
+    new_name: Option<String>,
+) -> Result<CreateProjectResult, String> {
+    let bridge = state.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        bridge.duplicate_project(&project_id, new_name.as_deref())
+    })
+    .await
+    .map_err(|err| format!("project_duplicate task failed: {err}"))?
+}
+
+#[tauri::command]
+pub async fn project_import(
+    state: tauri::State<'_, Arc<WorkerBridge>>,
+    project: serde_json::Value,
+) -> Result<CreateProjectResult, String> {
+    let bridge = state.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || bridge.import_project(project))
+        .await
+        .map_err(|err| format!("project_import task failed: {err}"))?
+}
+
+#[tauri::command]
+pub async fn project_list_render_jobs(
+    state: tauri::State<'_, Arc<WorkerBridge>>,
+    project_id: Option<String>,
+) -> Result<Vec<serde_json::Value>, String> {
+    let bridge = state.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || bridge.list_render_jobs(project_id.as_deref()))
+        .await
+        .map_err(|err| format!("project_list_render_jobs task failed: {err}"))?
+}
+
+#[tauri::command]
+pub async fn project_assets_list(
+    state: tauri::State<'_, Arc<WorkerBridge>>,
+    project_id: Option<String>,
+) -> Result<serde_json::Value, String> {
+    let bridge = state.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || bridge.assets_list(project_id.as_deref()))
+        .await
+        .map_err(|err| format!("project_assets_list task failed: {err}"))?
+}
+
+#[tauri::command]
+pub async fn project_import_asset(
+    state: tauri::State<'_, Arc<WorkerBridge>>,
+    project_id: String,
+    source_path: String,
+    name: Option<String>,
+    asset_type: Option<String>,
+    confirm_overwrite: Option<bool>,
+) -> Result<serde_json::Value, String> {
+    let bridge = state.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        bridge.import_asset_from_workspace(
+            &project_id,
+            &source_path,
+            name.as_deref(),
+            asset_type.as_deref(),
+            confirm_overwrite.unwrap_or(false),
+        )
+    })
+    .await
+    .map_err(|err| format!("project_import_asset task failed: {err}"))?
+}
+
+#[tauri::command]
+pub async fn project_import_asset_bytes(
+    state: tauri::State<'_, Arc<WorkerBridge>>,
+    project_id: String,
+    file_name: String,
+    data_base64: String,
+    name: Option<String>,
+    asset_type: Option<String>,
+    confirm_overwrite: Option<bool>,
+) -> Result<serde_json::Value, String> {
+    let bridge = state.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        bridge.import_asset_bytes(
+            &project_id,
+            &file_name,
+            &data_base64,
+            name.as_deref(),
+            asset_type.as_deref(),
+            confirm_overwrite.unwrap_or(false),
+        )
+    })
+    .await
+    .map_err(|err| format!("project_import_asset_bytes task failed: {err}"))?
+}
+
+#[tauri::command]
+pub async fn run_deterministic_agent(
+    state: tauri::State<'_, Arc<WorkerBridge>>,
+    project_id: String,
+    agent: String,
+) -> Result<serde_json::Value, String> {
+    let bridge = state.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || bridge.run_deterministic_agent(&project_id, &agent))
+        .await
+        .map_err(|err| format!("run_deterministic_agent task failed: {err}"))?
+}
+
+#[tauri::command]
+pub async fn config_get(
+    state: tauri::State<'_, Arc<WorkerBridge>>,
+) -> Result<serde_json::Value, String> {
+    let bridge = state.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || bridge.get_config())
+        .await
+        .map_err(|err| format!("config_get task failed: {err}"))?
+}
+
+#[tauri::command]
+pub async fn config_save(
+    state: tauri::State<'_, Arc<WorkerBridge>>,
+    config: serde_json::Value,
+) -> Result<serde_json::Value, String> {
+    let bridge = state.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || bridge.save_config(config))
+        .await
+        .map_err(|err| format!("config_save task failed: {err}"))?
 }
 
 #[cfg(test)]
@@ -1076,6 +1370,25 @@ const keepAlive = setInterval(() => {}, 10000);
         let (_guard, tmp_ws) = make_trailing_space_dir("real_core");
         let fake_gm_src = tmp_ws.join("engines").join("givemotion").join("src");
         fs::create_dir_all(&fake_gm_src).expect("create fake engine dir");
+        let fixture_mp4 = tmp_ws.join("projects").join("fixture-valid.mp4");
+        let ffmpeg_bin = crate::doctor::resolve_binary("ffmpeg");
+        let ffmpeg_status = Command::new(&ffmpeg_bin)
+            .args([
+                "-f",
+                "lavfi",
+                "-i",
+                "color=c=black:s=64x64:d=0.2",
+                "-c:v",
+                "libx264",
+                "-pix_fmt",
+                "yuv420p",
+                "-y",
+            ])
+            .arg(&fixture_mp4)
+            .status()
+            .expect("generate tiny test mp4");
+        assert!(ffmpeg_status.success(), "ffmpeg fixture generation failed");
+
         fs::write(
             fake_gm_src.join("cli.js"),
             r#"
@@ -1102,8 +1415,9 @@ if (cmd === 'bundle') {
 }
 if (cmd === 'render') {
   const outMp4 = args[args.indexOf('-o') + 1];
+  const validFixture = path.join(path.dirname(outMp4), '..', 'fixture-valid.mp4');
   console.error(JSON.stringify({ event: 'progress', phase: 'frames', done: 10, total: 20, fps: 12, eta: 0.5 }));
-  await fs.writeFile(outMp4, 'FAKE_MP4', 'utf8');
+  await fs.copyFile(validFixture, outMp4);
   console.error(JSON.stringify({ event: 'progress', phase: 'done' }));
   process.exit(0);
 }
@@ -1158,6 +1472,36 @@ if (cmd === 'render') {
             .expect("render_project succeeds cleanly");
         assert!(rendered.video_path.ends_with("output.mp4"));
         assert!(!events.lock().expect("lock").is_empty());
+
+        let jobs = bridge
+            .list_render_jobs(Some("proj_bridge_real"))
+            .expect("list_render_jobs succeeds");
+        assert!(!jobs.is_empty());
+
+        let duplicated = bridge
+            .duplicate_project("proj_bridge_real", Some("Bridge Clone"))
+            .expect("duplicate_project succeeds");
+        let clone_id = duplicated.project["id"].as_str().expect("clone id").to_string();
+        assert_ne!(clone_id, "proj_bridge_real");
+
+        let imported = bridge
+            .import_project(duplicated.project.clone())
+            .expect("import_project succeeds with colliding id minted cleanly");
+        let import_id = imported.project["id"].as_str().expect("imported id").to_string();
+        assert_ne!(import_id, clone_id);
+        let bad_import = bridge
+            .import_project(serde_json::json!({ "id": "../escape" }))
+            .expect_err("traversal import id rejected at Rust boundary");
+        assert!(bad_import.contains("INVALID_ID") || bad_import.contains("Invalid"));
+
+        let deleted = bridge
+            .delete_project(&clone_id)
+            .expect("delete_project succeeds");
+        assert!(deleted.deleted);
+        let deleted_import = bridge
+            .delete_project(&import_id)
+            .expect("delete imported project succeeds");
+        assert!(deleted_import.deleted);
 
         let invalid = bridge
             .call_json(

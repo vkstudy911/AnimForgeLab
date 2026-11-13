@@ -1,0 +1,10 @@
+# Agent Task Assignments & File Ownership Matrix
+
+Parallel subagent execution is organized strictly by **disjoint file ownership** to eliminate write collisions. Every subagent reports back cleanly before the Coordinator wires `App.tsx` and executes the final verification suite.
+
+| Agent Role | Conversation / Type | Owned Directories / Files | Forbidden Files (Read-Only) |
+| :--- | :--- | :--- | :--- |
+| **Coordinator (UI Architecture, Design System & Integration)** | Main Agent | `index.html`, `public/theme-init.js`, `src/types.ts`, `src/hooks/useStudio.ts`, `src/hooks/useThemePreference.ts`, `src/styles/*`, `src/components/ui/*`, `src/context/StudioContext.tsx`, `src/components/layout/*`, `src/App.tsx`, `src/main.tsx`, `src/App.test.tsx`, `docs/redesign/*`, `documentation/plans/ANIMFORGE_PROGRESS.md` | `src-tauri/*`, `animforge-core/*`, `engines/*` |
+| **Agent 3: Animation Studio Workspace** | Subagent (`studio-workspace`) | `src/components/timeline/SceneOutliner.tsx`, `src/components/timeline/MultiTrackTimeline.tsx`, `src/components/timeline/CueInspector.tsx`, `src/workspaces/AnimationEditor.tsx`, `src/components/PreviewStage.tsx`, `src/workspaces/AnimationEditor.test.tsx` | `App.tsx`, `StudioContext.tsx`, `DoctorBar.tsx`, `workspaces/{Home,Project,Story,Render,Diagnostics,Character,Asset,Settings,Agent}*` |
+| **Agent 4: Management Pages** | Subagent (`management-pages`) | `src/workspaces/HomeDashboard.tsx`, `src/workspaces/ProjectManager.tsx`, `src/workspaces/StoryScenesWorkspace.tsx`, `src/workspaces/RenderWorkspace.tsx`, `src/workspaces/DiagnosticsWorkspace.tsx`, `src/components/DoctorBar.tsx`, `src/workspaces/ManagementWorkspaces.test.tsx` | `App.tsx`, `StudioContext.tsx`, `PreviewStage.tsx`, `workspaces/{Animation,Character,Asset,Settings,Agent}*` |
+| **Agent 5 (Prep): Secondary Creative & System Pages** | Subagent (`secondary-pages`) | `src/workspaces/CharacterStudio.tsx`, `src/workspaces/AssetLibrary.tsx`, `src/workspaces/SettingsWorkspace.tsx`, `src/workspaces/AgentCenterWorkspace.tsx`, `src/workspaces/SecondaryWorkspaces.test.tsx` | `App.tsx`, `StudioContext.tsx`, `PreviewStage.tsx`, `DoctorBar.tsx` |

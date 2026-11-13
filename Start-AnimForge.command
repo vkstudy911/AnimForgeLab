@@ -207,9 +207,9 @@ else
 fi
 
 if [ -d "/Applications/Google Chrome.app" ] || command -v google-chrome >/dev/null 2>&1 || command -v chromium >/dev/null 2>&1; then
-  echo "  • Browser: Chrome/Chromium detected"
+  echo "  • Video Renderer: Chrome/Chromium detected (used by GiveMotion headless video exporter, not used as the GUI)"
 else
-  echo "  • Browser: [WARN] Google Chrome not found in /Applications (GiveMotion MP4 render needs Chrome)"
+  echo "  • Video Renderer: [WARN] Google Chrome not found in /Applications (GiveMotion headless MP4 render needs Chrome)"
 fi
 
 # 4. Check installed dependencies & compiled worker artifacts (never auto-install).
@@ -231,16 +231,31 @@ echo "[2/3] Checking installed dependencies..."
 echo "  • animforge-core dependencies & worker.js: OK"
 echo "  • animforge-desktop Tauri & Vite CLI:      OK"
 
-# 5. Launch native Tauri desktop window using existing dev script.
-echo ""
-echo "[3/3] Starting AnimForge Studio native window..."
-echo "      Command: (cd \"$APP_DIR\" && npm run tauri dev)"
-echo "      Press Ctrl+C here (or quit the app window) to exit cleanly."
-echo ""
+# 5. Launch native Tauri desktop window (never fall back to browser).
+RELEASE_APP="$APP_DIR/src-tauri/target/release/bundle/macos/AnimForge Studio.app"
+USE_RELEASE=0
+if [ "${1:-}" = "--release" ] || [ "${ANIMFORGE_MODE:-}" = "release" ]; then
+  USE_RELEASE=1
+fi
 
-cd "$APP_DIR" || fail "Cannot enter $APP_DIR"
-npm run tauri dev &
-CHILD_PID=$!
+echo ""
+if [ "$USE_RELEASE" -eq 1 ] && [ -d "$RELEASE_APP" ]; then
+  echo "[3/3] Starting AnimForge Studio (Native Packaged Release Bundle)..."
+  echo "      Application: $RELEASE_APP"
+  echo "      Press Ctrl+C here (or quit the app window) to exit cleanly."
+  echo ""
+  "$RELEASE_APP/Contents/MacOS/animforge-desktop" &
+  CHILD_PID=$!
+else
+  echo "[3/3] Starting AnimForge Studio native window (Tauri 2 + Rust + WebKit)..."
+  echo "      Command: (cd \"$APP_DIR\" && npm run tauri dev)"
+  echo "      Note: Frontend runs strictly inside native Tauri desktop window, not a browser tab."
+  echo "      Press Ctrl+C here (or quit the app window) to exit cleanly."
+  echo ""
+  cd "$APP_DIR" || fail "Cannot enter $APP_DIR"
+  npm run tauri dev &
+  CHILD_PID=$!
+fi
 
 set +e
 wait "$CHILD_PID"

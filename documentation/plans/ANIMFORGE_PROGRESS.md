@@ -1,8 +1,8 @@
 # AnimForge Studio — Live Execution Progress Log
 
 **Last Updated:** 2026-11-13  
-**Active Milestone:** Critical Functional Repair Sprint (`DONE`)  
-**Current Task:** All 5 Failure Modes Repaired, 5 Workflows Verified, 6 QA Reports Published `DONE`
+**Active Milestone:** Native Desktop Application Enforcement & Production Packaging (`DONE`)  
+**Current Task:** Native Tauri Window Enforced, IPv4 Bind Fixed, .app & .dmg Built, Launcher Repaired `DONE`
 
 ---
 
@@ -147,6 +147,19 @@
 
 ---
 
+## Native Desktop Application Enforcement & Production Packaging (2026-11-13)
+
+| Task | Scope | Status | Owners | Verification Evidence |
+| :--- | :--- | :--- | :--- | :--- |
+| **Phase 1: Launch Root Cause Analysis** | Isolated IPv6 `[::1]:1420` bind mismatch vs Tauri IPv4 devUrl probe timeout; identified standalone `vite` invocation in browser and absence of root `package.json` | `DONE` | Lead Engineer | `docs/qa/NATIVE_DESKTOP_LAUNCH_REPORT.md` Section 2 |
+| **Phase 2: Enforce Native Tauri Dev** | Configured `host: '127.0.0.1'` in `vite.config.ts`, `devUrl: 'http://127.0.0.1:1420'` in `tauri.conf.json`, routed `npm run dev` to `tauri dev`, created root `AnimForgeLab/package.json` | `DONE` | Lead Engineer | `npm run tauri dev` boots native desktop window with 0 browser tabs opened |
+| **Phase 3: One-Click Launcher Repair** | Enhanced `Start-AnimForge.command` with release `.app` mode support, native Tauri dev launch, trailing-space preservation, and signal cleanup traps | `DONE` | Lead Engineer | `bash -n Start-AnimForge.command` exit 0, process cleanup verified |
+| **Phase 4: Native Window Verification** | Verified live macOS process (`animforge-desktop` PID 7639), WebKit helper processes, `PreviewServer` port 50597, and child `worker.js` subprocess | `DONE` | Lead Engineer | `ps aux`, `lsof`, `curl http://127.0.0.1:50597/__health` HTTP 200 OK |
+| **Phase 5: Production Desktop Build** | Built release macOS application bundle (`.app`) and macOS installer disk image (`.dmg`) using Tauri 2 bundler | `DONE` | Lead Engineer | `AnimForge Studio.app` (10.95 MiB), `AnimForge Studio_0.1.0_aarch64.dmg` (3.08 MiB) |
+| **Phase 6 & 7: Quality Gate & Docs** | Verified monorepo typecheck, 45 core tests, 59 desktop tests, 19 Rust cargo tests, and published comprehensive launch report | `DONE` | Lead Engineer | Monorepo `npm run typecheck`, `npm test`, `cargo test`, `docs/qa/NATIVE_DESKTOP_LAUNCH_REPORT.md` |
+
+---
+
 ## Decision & Ruling Log
 
 - **2026-11-11 — Skill Execution Mapping:** Verified Superpowers (`writing-plans`, `subagent-driven-development`, `executing-plans`, `test-driven-development`, `systematic-debugging`, `verification-before-completion`) and Ponytail (`ponytail`, `ponytail-review`) skills are installed and inspected. Mapped subagent independent reviews to `invoke_subagent`.
@@ -155,6 +168,7 @@
 - **2026-11-11 — M1-T09 & M1-T10 Ship, Paused Before M1-T11:** Installed official `rustup 1.29.3` (`rustc 1.99.1`, `cargo 1.99.1`, `stable-aarch64-apple-darwin`) after explicit approval, verified Xcode CLT + macOS `WebKit.framework` (`WKWebView`) prerequisites with zero Linux packages installed on macOS, scaffolded `animforge-desktop/` (`4815167`, reviewer `03d343c8: Ship`), and delivered the 8-category Rust `run_doctor` backend + accessible `<DoctorBar />` UI (`af92c9b`, reviewer `fe0ae7d2: Ship` after adding child-`PATH` propagation, StrictMode run sequencing, and WCAG 1.4.11 boundary contrast). Recorded report in `MILESTONE_1_REPORT.md` and paused cleanly before `M1-T11` without launching the live GUI.
 - **2026-11-12 — M1-T11 Ship & Milestone 1 Complete:** Delivered versioned worker protocol v1 (`576444b`), non-blocking `WorkerBridge` (`49c231c`), path-jailed `127.0.0.1` `PreviewServer` (`331e462`), accessible Studio UI + real `<gm-player>` stage (`61e7678`), and 3 post-audit hardening fixes (`6ce2515`: duplicate `renderProject()` guard, timeout worker teardown preventing stuck `activeRenders`, and removing unused `ResolvedAsset.size`). Verified standalone release binary boot/quit cleanup and full headless Chrome `<gm-player>` + FFmpeg MP4 + HTTP range/security checks (`verify_e2e.mjs`), leaving temporary smoke artifacts cleaned and upstream `engines/*` untouched. Stopped before `M1-T12`.
 - **2026-11-13 — Critical Functional Repair Sprint Complete:** Identified and resolved 5 core failure modes across the preview engine, loopback server, project management, and scene/timeline synchronization. Replaced pre-flight headless checks with bundle-first execution and non-fatal fallback in `givemotion.adapter.ts`. Added CORS headers and OPTIONS preflight to `preview_server.rs`. Implemented `<gm-player>.seekTo()` transport synchronization in `PreviewStage.tsx`. Added `hasBundle` and `hasVideo` disk indicators to project metadata schemas. Validated Workflows A–E with full automated test coverage (`critical_repair_workflows.test.ts`), preserved reference project `proj_1794470257338_1` ("Dancer"), and published 6 comprehensive QA reports in `docs/qa/`.
+- **2026-11-13 — Native Tauri Desktop Enforcement & Production Release:** Root-caused why AnimForge opened in a browser (Vite 5 IPv6 default `[::1]:1420` causing Tauri CLI IPv4 dev-server probe timeout; missing root package.json causing users to run standalone `npm run dev` in browser; no production packaging). Fixed `vite.config.ts` to `host: '127.0.0.1'`, updated `tauri.conf.json`, routed `npm run dev` to `tauri dev`, created root `package.json`, upgraded `Start-AnimForge.command` for native Tauri launch, verified live native desktop process (PID 7639 / WebKit / PreviewServer / worker.js), and produced verified production `.app` (10.95 MiB) and `.dmg` (3.08 MiB) bundles. Report published in `docs/qa/NATIVE_DESKTOP_LAUNCH_REPORT.md`.
 
 ---
 

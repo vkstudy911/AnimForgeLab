@@ -4,8 +4,11 @@
   "version": "0.1.0",
   "type": "module",
   "scripts": {
-    "dev": "vite",
+    "dev": "tauri dev",
+    "dev:vite": "vite",
     "build": "tsc --noEmit && vite build",
+    "build:app": "tauri build --bundles app",
+    "build:dmg": "CI=true tauri build --bundles dmg",
     "preview": "vite preview",
     "test": "vitest run",
     "typecheck": "tsc --noEmit",

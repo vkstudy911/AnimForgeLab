@@ -375,20 +375,25 @@ export async function runWorker(workspaceDir: string): Promise<void> {
         const projectDir = resolveProjectDir(workspaceDir, project.id);
         await adapter.saveProjectState(project);
         db.saveProject(project);
-        return { project, projectDir };
+        const hasBundle = fsSync.existsSync(path.join(projectDir, 'bundle', 'index.html'));
+        const hasVideo = fsSync.existsSync(path.join(projectDir, 'output.mp4'));
+        return { project: { ...project, hasBundle, hasVideo }, projectDir };
       }
 
       case 'load_project': {
         const { projectId } = ProjectIdParamsSchema.parse(params);
         const safeProjectId = assertSafeId(projectId, 'project');
         const project = await loadProjectFromDbOrDisk(db, workspaceDir, safeProjectId);
-        return { project };
+        const projectDir = resolveProjectDir(workspaceDir, safeProjectId);
+        const hasBundle = fsSync.existsSync(path.join(projectDir, 'bundle', 'index.html'));
+        const hasVideo = fsSync.existsSync(path.join(projectDir, 'output.mp4'));
+        return { project: { ...project, hasBundle, hasVideo } };
       }
 
       case 'save_project': {
         const { project } = SaveProjectParamsSchema.parse(params);
         const safeProjectId = assertSafeId(project.id, 'project');
-        resolveProjectDir(workspaceDir, safeProjectId);
+        const projectDir = resolveProjectDir(workspaceDir, safeProjectId);
         for (const scene of project.scenes) {
           assertSafeId(scene.id, 'scene');
           if (scene.projectId !== safeProjectId) {
@@ -399,7 +404,9 @@ export async function runWorker(workspaceDir: string): Promise<void> {
           }
         }
         const updated = await persistFullProject(project);
-        return { project: updated };
+        const hasBundle = fsSync.existsSync(path.join(projectDir, 'bundle', 'index.html'));
+        const hasVideo = fsSync.existsSync(path.join(projectDir, 'output.mp4'));
+        return { project: { ...updated, hasBundle, hasVideo } };
       }
 
       case 'delete_project': {

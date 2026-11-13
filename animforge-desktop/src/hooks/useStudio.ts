@@ -214,23 +214,23 @@ export function useStudio() {
       setError(null);
       try {
         const loaded = await invoke<ProjectDetail>('project_load', { projectId });
-        let hasBundle = false;
-        let hasVideo = false;
+        let hasBundle = Boolean(loaded.hasBundle);
+        let hasVideo = Boolean(loaded.hasVideo);
         const currentBaseUrl = previewBaseUrlRef.current;
-        if (currentBaseUrl) {
+        if (currentBaseUrl && (!hasBundle || !hasVideo)) {
           try {
             const [bRes, vRes] = await Promise.all([
               fetch(`${currentBaseUrl}/projects/${loaded.id}/bundle/index.html`, { method: 'HEAD' }).catch(() => null),
               fetch(`${currentBaseUrl}/projects/${loaded.id}/output.mp4`, { method: 'HEAD' }).catch(() => null),
             ]);
-            hasBundle = Boolean(bRes && bRes.ok);
-            hasVideo = Boolean(vRes && vRes.ok);
+            if (bRes && bRes.ok) hasBundle = true;
+            if (vRes && vRes.ok) hasVideo = true;
           } catch {
-            // Ignore probe errors and fallback to 0
+            // Ignore probe errors and fallback to loaded properties
           }
         }
         if (unmountedRef.current || seq !== projectSeqRef.current) return null;
-        setActiveProject(loaded);
+        setActiveProject({ ...loaded, hasBundle, hasVideo });
         setPreviewResult(null);
         setPreviewRev(hasBundle ? 1 : 0);
         setVideoRev(hasVideo ? 1 : 0);
@@ -343,6 +343,9 @@ export function useStudio() {
           projectSeqRef.current === targetSeq
         ) {
           setActiveProject(saved);
+          if (saved.hasBundle) {
+            setPreviewRev((rev) => (rev > 0 ? rev + 1 : 0));
+          }
           setStatusMessage(customStatusMessage ?? `Saved project "${saved.name}".`);
         }
         return saved;

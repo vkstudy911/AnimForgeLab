@@ -638,6 +638,8 @@ fn is_allowed_origin(raw_origin: &str, expected_port: u16) -> bool {
         || origin == "https://tauri.localhost"
         || origin == "http://localhost:1420"
         || origin == "http://127.0.0.1:1420"
+        || origin == "http://localhost:5173"
+        || origin == "http://127.0.0.1:5173"
 }
 
 #[derive(Debug)]
@@ -1017,13 +1019,31 @@ fn handle_client(
         return;
     }
 
+    let matched_origin = origin_values.first().copied();
+    if method == "OPTIONS" {
+        let allow_origin = matched_origin.unwrap_or("*");
+        let head = format!(
+            "HTTP/1.1 204 No Content\r\n\
+             Access-Control-Allow-Origin: {allow_origin}\r\n\
+             Access-Control-Allow-Methods: GET, HEAD, OPTIONS\r\n\
+             Access-Control-Allow-Headers: Range, Content-Type, Accept\r\n\
+             Access-Control-Expose-Headers: Content-Range, Content-Length, Accept-Ranges\r\n\
+             Access-Control-Max-Age: 86400\r\n\
+             Connection: close\r\n\r\n"
+        );
+        let _ = stream.write_all(head.as_bytes());
+        let _ = stream.flush();
+        let _ = stream.shutdown(Shutdown::Both);
+        return;
+    }
+
     if method != "GET" && method != "HEAD" {
         let _ = write_simple_error(
             &mut stream,
             405,
             "Method Not Allowed",
-            "Only GET and HEAD are supported",
-            &[("Allow", "GET, HEAD")],
+            "Only GET, HEAD, and OPTIONS are supported",
+            &[("Allow", "GET, HEAD, OPTIONS")],
             include_body,
         );
         let _ = stream.shutdown(Shutdown::Both);
@@ -1032,8 +1052,10 @@ fn handle_client(
 
     if target == "/__health" || target.starts_with("/__health?") {
         let body = b"{\"ok\":true}";
+        let allow_origin = matched_origin.unwrap_or("*");
         let head = format!(
             "HTTP/1.1 200 OK\r\n\
+             Access-Control-Allow-Origin: {allow_origin}\r\n\
              Content-Type: application/json; charset=utf-8\r\n\
              Content-Length: {}\r\n\
              X-Content-Type-Options: nosniff\r\n\
@@ -1143,11 +1165,16 @@ fn handle_client(
         None | Some(RangeParseResult::Ignore) => ("HTTP/1.1 200 OK", 0, file_size, None),
     };
 
+    let allow_origin = matched_origin.unwrap_or("*");
     let mut head = format!(
         "{status_line}\r\n\
          Content-Type: {}\r\n\
          Content-Length: {length}\r\n\
          Accept-Ranges: bytes\r\n\
+         Access-Control-Allow-Origin: {allow_origin}\r\n\
+         Access-Control-Allow-Methods: GET, HEAD, OPTIONS\r\n\
+         Access-Control-Allow-Headers: Range, Content-Type, Accept\r\n\
+         Access-Control-Expose-Headers: Content-Range, Content-Length, Accept-Ranges\r\n\
          X-Content-Type-Options: nosniff\r\n\
          Cache-Control: no-store\r\n\
          Connection: close\r\n",

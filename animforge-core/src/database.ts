@@ -22,6 +22,8 @@ export interface ProjectSummary {
   height: number;
   fps: number;
   updatedAt: string;
+  hasBundle?: boolean;
+  hasVideo?: boolean;
 }
 
 type SqliteDatabase = {
@@ -169,6 +171,9 @@ export class AnimForgeDatabase {
       if (typeof row.data !== 'string') continue;
       try {
         const p = ProjectSchema.parse(JSON.parse(row.data));
+        const pDir = projectsRoot ? path.join(projectsRoot, p.id) : null;
+        const hasBundle = pDir ? fs.existsSync(path.join(pDir, 'bundle', 'index.html')) : undefined;
+        const hasVideo = pDir ? fs.existsSync(path.join(pDir, 'output.mp4')) : undefined;
         summaries.push({
           id: p.id,
           name: p.name,
@@ -179,6 +184,8 @@ export class AnimForgeDatabase {
           height: p.height,
           fps: p.fps,
           updatedAt: p.updatedAt,
+          ...(hasBundle !== undefined ? { hasBundle } : {}),
+          ...(hasVideo !== undefined ? { hasVideo } : {}),
         });
       } catch {
         continue;

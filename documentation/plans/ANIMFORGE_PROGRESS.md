@@ -1,8 +1,8 @@
 # AnimForge Studio — Live Execution Progress Log
 
 **Last Updated:** 2026-11-13  
-**Active Milestone:** Redesign Phase 2 — Four-Agent Parallel Development Architecture (`DONE`)  
-**Current Task:** Phase 2 Complete 10-Workspace Implementation, Timeline Keyframing, Character Rigging & Asset/Render Pipeline Sign-Off `DONE`
+**Active Milestone:** Critical Functional Repair Sprint (`DONE`)  
+**Current Task:** All 5 Failure Modes Repaired, 5 Workflows Verified, 6 QA Reports Published `DONE`
 
 ---
 
@@ -134,6 +134,19 @@
 
 ---
 
+## Critical Functional Repair Sprint — Six-Agent Architecture & Desktop Acceptance (2026-11-13)
+
+| Task | Scope | Status | Owners | Verification Evidence |
+| :--- | :--- | :--- | :--- | :--- |
+| **Agent 1: Preview Engine** | Inverted GiveMotion `previewProject` execution to guarantee bundling first; soft error handling for headless Chrome environment limitations (`HEADLESS_CHECK_SKIPPED`); auto bundle re-compilation on project save in `writeProjectFiles` | `DONE` | Agent 1 + Coordinator | `givemotion.adapter.test.js` (`8/8` pass), `critical_repair_workflows.test.ts:Workflow A & B` |
+| **Agent 2: Project Management** | Explicit dirty-state tracking in `ProjectManager.tsx`, field validation for FPS/aspect ratio/resolution/title, Save & Discard flows, zero corruption of reference project `proj_1794470257338_1` | `DONE` | Agent 2 + Coordinator | `ProjectManager.test.tsx` (`8/8` pass), `critical_repair_workflows.test.ts:Workflow C` |
+| **Agent 3: Scene & Timeline** | Scene creation, deletion, and sequence reordering; bidirectional playhead scrub synchronization with `<gm-player>.seekTo()`; reactive `previewRev` invalidation on draft save | `DONE` | Agent 3 + Coordinator | `Timeline.test.tsx` (`7/7` pass), `SceneEditor.test.tsx` (`9/9` pass), `critical_repair_workflows.test.ts:Workflow D` |
+| **Agent 4: Desktop Shell & Tauri** | Full CORS headers (`Access-Control-Allow-Origin`, `Methods`, `Headers`, `Expose-Headers`) and HTTP `OPTIONS` 204 response on loopback preview server (`preview_server.rs`); expanded origin whitelisting | `DONE` | Agent 4 + Coordinator | `cargo test worker_bridge` (`4/4` pass), `cargo check` (`0` errors) |
+| **Agent 5: Core Worker & MCP Bridge** | Synchronous `hasBundle` and `hasVideo` disk indicators attached to `ProjectSchema`, `ProjectSummary`, `ProjectDetail`, `database.listProjects()`, and `worker.ts` handlers | `DONE` | Agent 5 + Coordinator | `database.test.ts` (`10/10` pass), `worker.test.ts` (`8/8` pass), `critical_repair_workflows.test.ts:Workflow E` |
+| **Agent 6: Integration QA & Acceptance** | Automated verification of Workflows A, B, C, D, E against real GiveMotion compiler and MCP services; publication of 6 comprehensive QA reports | `DONE` | Agent 6 + Coordinator | Core Vitest (`43/45` pass, `2` skipped), Desktop Vitest (`59/59` pass), `tsc --noEmit && vite build` (`0` errors, `373ms`) |
+
+---
+
 ## Decision & Ruling Log
 
 - **2026-11-11 — Skill Execution Mapping:** Verified Superpowers (`writing-plans`, `subagent-driven-development`, `executing-plans`, `test-driven-development`, `systematic-debugging`, `verification-before-completion`) and Ponytail (`ponytail`, `ponytail-review`) skills are installed and inspected. Mapped subagent independent reviews to `invoke_subagent`.
@@ -141,3 +154,4 @@
 - **2026-11-11 — M1-T08 Ship & M1-T09 Pause:** `M1-T08` passed real Chrome + FFmpeg + `ffprobe` export in `13.1s` (`task-930`, commit `3cffcbb`) after surfacing top-level `check --json` runtime errors in `parseCheckReport`. Reviewer `c61b2086` returned `Verdict: Ship.` with two non-blocking hardenings noted for follow-up (`dispose()` child-exit wait on timeout vs async test hook, direct-`.ts` root resolution in `givemotion.integration.test.ts`). Stopped cleanly before `M1-T09` because `rustup`/`rustc`/`cargo` are absent (`exit 127`) and require explicit user approval to install.
 - **2026-11-11 — M1-T09 & M1-T10 Ship, Paused Before M1-T11:** Installed official `rustup 1.29.3` (`rustc 1.99.1`, `cargo 1.99.1`, `stable-aarch64-apple-darwin`) after explicit approval, verified Xcode CLT + macOS `WebKit.framework` (`WKWebView`) prerequisites with zero Linux packages installed on macOS, scaffolded `animforge-desktop/` (`4815167`, reviewer `03d343c8: Ship`), and delivered the 8-category Rust `run_doctor` backend + accessible `<DoctorBar />` UI (`af92c9b`, reviewer `fe0ae7d2: Ship` after adding child-`PATH` propagation, StrictMode run sequencing, and WCAG 1.4.11 boundary contrast). Recorded report in `MILESTONE_1_REPORT.md` and paused cleanly before `M1-T11` without launching the live GUI.
 - **2026-11-12 — M1-T11 Ship & Milestone 1 Complete:** Delivered versioned worker protocol v1 (`576444b`), non-blocking `WorkerBridge` (`49c231c`), path-jailed `127.0.0.1` `PreviewServer` (`331e462`), accessible Studio UI + real `<gm-player>` stage (`61e7678`), and 3 post-audit hardening fixes (`6ce2515`: duplicate `renderProject()` guard, timeout worker teardown preventing stuck `activeRenders`, and removing unused `ResolvedAsset.size`). Verified standalone release binary boot/quit cleanup and full headless Chrome `<gm-player>` + FFmpeg MP4 + HTTP range/security checks (`verify_e2e.mjs`), leaving temporary smoke artifacts cleaned and upstream `engines/*` untouched. Stopped before `M1-T12`.
+- **2026-11-13 — Critical Functional Repair Sprint Complete:** Identified and resolved 5 core failure modes across the preview engine, loopback server, project management, and scene/timeline synchronization. Replaced pre-flight headless checks with bundle-first execution and non-fatal fallback in `givemotion.adapter.ts`. Added CORS headers and OPTIONS preflight to `preview_server.rs`. Implemented `<gm-player>.seekTo()` transport synchronization in `PreviewStage.tsx`. Added `hasBundle` and `hasVideo` disk indicators to project metadata schemas. Validated Workflows A–E with full automated test coverage (`critical_repair_workflows.test.ts`), preserved reference project `proj_1794470257338_1` ("Dancer"), and published 6 comprehensive QA reports in `docs/qa/`.

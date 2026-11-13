@@ -163,17 +163,22 @@ export function PreviewStage({
     setShowSafeZones(defaultSafeZones);
   }, [defaultSafeZones]);
 
+  const hasMountedRef = useRef(false);
+
   useEffect(() => {
-    if (videoUrl && videoUrl !== prevVideoUrlRef.current) {
-      setViewMode('video');
-    } else if (!videoUrl && bundleUrl) {
-      setViewMode('bundle');
-    } else if (
-      bundleUrl &&
-      bundleUrl !== prevBundleUrlRef.current &&
-      videoUrl === prevVideoUrlRef.current
-    ) {
-      setViewMode('bundle');
+    if (!hasMountedRef.current) {
+      hasMountedRef.current = true;
+      if (bundleUrl) {
+        setViewMode('bundle');
+      } else if (videoUrl) {
+        setViewMode('video');
+      }
+    } else {
+      if (videoUrl && videoUrl !== prevVideoUrlRef.current) {
+        setViewMode('video');
+      } else if (bundleUrl && bundleUrl !== prevBundleUrlRef.current && videoUrl === prevVideoUrlRef.current) {
+        setViewMode('bundle');
+      }
     }
     prevVideoUrlRef.current = videoUrl;
     prevBundleUrlRef.current = bundleUrl;
@@ -304,11 +309,19 @@ export function PreviewStage({
       : showPlayer
         ? (playerRef.current as MediaLikeElement | null)
         : null;
-    if (el && typeof el.currentTime === 'number' && Math.abs(el.currentTime - playheadTime) > 0.05) {
-      try {
-        el.currentTime = playheadTime;
-      } catch {
-        // Ignore read-only currentTime on custom elements
+    if (el) {
+      if (typeof (el as unknown as { seekTo?: (t: number) => void }).seekTo === 'function') {
+        try {
+          (el as unknown as { seekTo: (t: number) => void }).seekTo(playheadTime);
+        } catch {
+          // Ignore
+        }
+      } else if (typeof el.currentTime === 'number' && Math.abs(el.currentTime - playheadTime) > 0.05) {
+        try {
+          el.currentTime = playheadTime;
+        } catch {
+          // Ignore read-only currentTime on custom elements
+        }
       }
     }
   }, [playheadTime, showVideo, showPlayer]);
@@ -326,11 +339,19 @@ export function PreviewStage({
     setCurrentTime(clamped);
     onPlayheadChange?.(clamped);
     const el = getActiveMedia();
-    if (el && 'currentTime' in el) {
-      try {
-        el.currentTime = clamped;
-      } catch {
-        // Ignore non-writable currentTime
+    if (el) {
+      if (typeof (el as unknown as { seekTo?: (t: number) => void }).seekTo === 'function') {
+        try {
+          (el as unknown as { seekTo: (t: number) => void }).seekTo(clamped);
+        } catch {
+          // Ignore
+        }
+      } else if ('currentTime' in el) {
+        try {
+          el.currentTime = clamped;
+        } catch {
+          // Ignore non-writable currentTime
+        }
       }
     }
   };

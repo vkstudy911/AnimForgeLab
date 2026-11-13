@@ -28,6 +28,8 @@ export const ProjectSchema = z.object({
   scenes: z.array(SceneSchema).default([]),
   createdAt: z.string().datetime(),
   updatedAt: z.string().datetime(),
+  hasBundle: z.boolean().optional(),
+  hasVideo: z.boolean().optional(),
 });
 
 export const DiskManifestSchema = z.object({

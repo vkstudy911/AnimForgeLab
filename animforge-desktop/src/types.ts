@@ -142,6 +142,8 @@ export interface ProjectSummary {
   height: number;
   fps: number;
   updatedAt: string;
+  hasBundle?: boolean;
+  hasVideo?: boolean;
 }
 
 export interface SceneDetail {
@@ -173,6 +175,8 @@ export interface ProjectDetail {
   scenes: SceneDetail[];
   createdAt: string;
   updatedAt: string;
+  hasBundle?: boolean;
+  hasVideo?: boolean;
   [key: string]: unknown;
 }
 

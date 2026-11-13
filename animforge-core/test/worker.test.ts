@@ -863,3 +863,90 @@ test('worker supports lifecycle CRUD, assets import, deterministic agents, confi
     await fs.rm(tmpParent, { recursive: true, force: true });
   }
 });
+
+test('worker supports character studio IPC commands: import, list, load, motion, preview, export', async () => {
+  const tmpParent = await fs.mkdtemp(path.join(os.tmpdir(), 'af-char-worker- '));
+  const ws = path.join(tmpParent, 'studio ');
+  await fs.mkdir(path.join(ws, 'projects'), { recursive: true });
+  await fs.mkdir(path.join(ws, 'characters'), { recursive: true });
+
+  const client = startWorkerClient(ws);
+  try {
+    // 1. Create a character PNG asset
+    const w = 80;
+    const h = 160;
+    const rgba = new Uint8Array(w * h * 4);
+    for (let y = 10; y < 150; y++) {
+      for (let x = 20; x < 60; x++) {
+        const idx = (y * w + x) * 4;
+        rgba[idx] = 200;
+        rgba[idx + 1] = 150;
+        rgba[idx + 2] = 50;
+        rgba[idx + 3] = 255;
+      }
+    }
+    const pngPath = path.join(ws, 'alien.png');
+    const { encodePng } = await import('../src/character/png_decoder.js');
+    await fs.writeFile(pngPath, encodePng(w, h, rgba));
+
+    // 2. character_import
+    const importRes = await client.call('character_import', {
+      artworkPath: pngPath,
+      name: 'AlienWorkerChar',
+      enableIK: true,
+      enableMeshes: true,
+    });
+    assert.equal(importRes.ok, true);
+    const charData = (importRes.result as { character: { id: string; name: string } }).character;
+    assert.equal(charData.name, 'AlienWorkerChar');
+
+    // 3. character_list
+    const listRes = await client.call('character_list', {});
+    assert.equal(listRes.ok, true);
+    const list = (listRes.result as { characters: Array<{ id: string }> }).characters;
+    assert.ok(list.some((c) => c.id === charData.id));
+
+    // 4. character_load
+    const loadRes = await client.call('character_load', { characterId: charData.id });
+    assert.equal(loadRes.ok, true);
+    assert.equal((loadRes.result as { character: { id: string } }).character.id, charData.id);
+
+    // 5. character_generate_motion
+    const motionRes = await client.call('character_generate_motion', {
+      characterId: charData.id,
+      action: 'wave',
+      duration: 1.5,
+    });
+    assert.equal(motionRes.ok, true);
+    const anim = (motionRes.result as { animation: { name: string; duration: number } }).animation;
+    assert.equal(anim.name, 'wave');
+    assert.equal(anim.duration, 1.5);
+
+    // 6. character_preview
+    const previewRes = await client.call('character_preview', {
+      characterId: charData.id,
+      animationName: 'wave',
+      time: 0.5,
+    });
+    assert.equal(previewRes.ok, true);
+    const pose = (previewRes.result as { pose: { bones: any[] } }).pose;
+    assert.ok(pose.bones.length > 0);
+
+    // 7. character_export_spine
+    const spineRes = await client.call('character_export_spine', {
+      characterId: charData.id,
+      version: '3.8',
+    });
+    assert.equal(spineRes.ok, true);
+    const spineJson = (spineRes.result as { spineJson: any }).spineJson;
+    assert.ok(spineJson.skeleton || spineJson.bones);
+
+    const exitCode = await client.closeAndWaitExit(2000);
+    assert.equal(exitCode, 0);
+  } finally {
+    if (!client.proc.killed && client.proc.exitCode === null) {
+      client.proc.kill('SIGKILL');
+    }
+    await fs.rm(tmpParent, { recursive: true, force: true });
+  }
+});

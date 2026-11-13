@@ -1,8 +1,8 @@
 # AnimForge Studio — Live Execution Progress Log
 
 **Last Updated:** 2026-11-13  
-**Active Milestone:** Native Desktop Application Enforcement & Production Packaging (`DONE`)  
-**Current Task:** Native Tauri Window Enforced, IPv4 Bind Fixed, .app & .dmg Built, Launcher Repaired `DONE`
+**Active Milestone:** Rigby2D Character Studio & AI Auto-Rig Engine Integration (`DONE`)  
+**Current Task:** Dual-Engine Character Studio, 15 MCP Tools, Zero-Dep PNG Codec, 15-Step Vertical Slice Verified `DONE`
 
 ---
 
@@ -184,3 +184,19 @@
 | **Export** | Final MP4 rendered after explicit confirmation | `DONE` | `job_1794567203245_1`; ffprobe: 15.000000 s, 450 frames, 1920×1080 @ 30 fps, h264 + stereo AAC 48 kHz; audio mean −21.7 dB / peak −6.8 dB |
 
 **Limitations recorded:** 2.5D puppet (no mesh/IK/skinning/finger bones); star is a procedural prop, not a rigged 3D object; no orchestral sample library (ambient track reused from the workspace); walking/holding/waving are engine actions with pose parameters, not per-joint keyframes.
+
+---
+
+## AnimForge Character Studio — Rigby2D Engine Integration Sprint (2026-11-13)
+
+| Task ID | Scope | Status | Verification Evidence |
+| :--- | :--- | :--- | :--- |
+| **CS-00 Engine Audit** | Audited Rigby2D (`jaisurya-dev-art/rigby2d`) and TextRig (`blackoutbuild/textrig`), verified MIT licenses, isolated core modules, ran upstream tests (`31/31` passed) | `DONE` | `docs/character-studio/CHARACTER_STUDIO_ARCHITECTURE.md`, `LICENSE_AND_SECURITY_REPORT.md` |
+| **CS-01 Rigby2D Adapter** | Built `Rigby2DAdapter` conforming to `AnimationEngineAdapter` with pose evaluation, forward/inverse kinematics, Spine 3.8/4.2 export/import, and `animforge-character/2.0` schema | `DONE` | `animforge-core/adapters/rigby2d.adapter.ts`, `schemas/character.rigby.ts`, `rigby2d.adapter.test.ts` |
+| **CS-02 Zero-Dep PNG Codec** | Pure TypeScript PNG chunk reader/writer (`png_decoder.ts`), dimension, channel, and RGBA buffer extraction with path-jailing | `DONE` | `animforge-core/src/character/png_decoder.ts`, `png_decoder.test.ts` |
+| **CS-03 Silhouette Segmentation** | Silhouette detection of standard anatomical components (head, torso, arms, legs, hands, feet) from flat 2D character artwork | `DONE` | `animforge-core/src/character/segmentation.ts`, `character.autorig.test.ts` |
+| **CS-04 AI Auto-Rig Service** | Procedural bone positioning, 21+ bone humanoid skeleton, Delaunay mesh subdivision, and smooth distance-based skinning weights | `DONE` | `animforge-core/src/character/autorig.ts`, `character.autorig.test.ts` |
+| **CS-05 AI Motion Planner** | Procedural skeletal keyframe generators for 11 distinct actions (`idle`, `walk`, `run`, `wave`, `jump`, `dance`, `breathing`, `blink`, `head_turn`, `smile`, `hand_gesture`) | `DONE` | `animforge-core/src/character/motion_planner.ts`, `character.autorig.test.ts` |
+| **CS-06 15 MCP Character Tools** | Registered complete stdio Character MCP suite (`animforge_character_*`) for listing, importing, analyzing, rigging, animating, validating, and exporting characters | `DONE` | `animforge-core/src/mcp/character_tools.ts`, `character_mcp.test.ts` |
+| **CS-07 Dual-Engine UI Studio** | Dual-engine Character Studio workspace hosting Rigby2D Canvas Viewport (pan/zoom/overlays) and StretchyStudio Schematic HUD with bone hierarchy tree and AI presets | `DONE` | `animforge-desktop/src/workspaces/CharacterStudio.tsx`, `CharacterStudio.test.tsx` (`5/5` passed) |
+| **CS-08 Vertical Slice & Production QA** | 15-step vertical slice test (`16/16` assertions passed), 70 core tests (`68/70` passed, `2` opt-in skipped), 12 desktop test suites (`64/64` passed), Dancer project uncorrupted | `DONE` | `character.vertical_slice.test.ts`, `docs/character-studio/CHARACTER_STUDIO_QA_REPORT.md`, `ENGINE_INTEGRATION_REPORT.md` |

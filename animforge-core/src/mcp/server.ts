@@ -20,6 +20,24 @@ import {
   UpdateSceneInputSchema,
 } from './schemas.js';
 import { AnimForgeMcpService } from './tools.js';
+import { CharacterMcpService } from './character_tools.js';
+import {
+  CharacterAnalyzeInputSchema,
+  CharacterCreateBoneInputSchema,
+  CharacterCreateIKInputSchema,
+  CharacterDetectPartsInputSchema,
+  CharacterExportInputSchema,
+  CharacterGenerateAnimationInputSchema,
+  CharacterGetRigInputSchema,
+  CharacterImportInputSchema,
+  CharacterListInputSchema,
+  CharacterPreviewInputSchema,
+  CharacterSaveInputSchema,
+  CharacterUpdateBoneInputSchema,
+  CharacterUpdateKeyframesInputSchema,
+  CharacterUpdateWeightsInputSchema,
+  CharacterValidateInputSchema,
+} from './character_schemas.js';
 import { validateWorkspaceDir } from './validation.js';
 
 export interface CreateAnimForgeMcpServerOptions {
@@ -49,6 +67,7 @@ export async function createAnimForgeMcpServer(
     workspaceDir,
     processRunner: options.processRunner,
   });
+  const charService = new CharacterMcpService(workspaceDir);
 
   const server = new McpServer({
     name: 'animforge',
@@ -238,6 +257,173 @@ export async function createAnimForgeMcpServer(
           },
         })
       )
+  );
+
+  // ---- Character Studio MCP Tools (15 Tools) ----
+
+  // 1. character_list
+  server.registerTool(
+    'character_list',
+    {
+      description: 'List characters in workspace or specified project.',
+      inputSchema: CharacterListInputSchema,
+      annotations: { readOnlyHint: true, openWorldHint: false },
+    },
+    async (args) => runTool(() => charService.listCharacters(args))
+  );
+
+  // 2. character_import
+  server.registerTool(
+    'character_import',
+    {
+      description: 'Import flat PNG or layered artwork, auto-rig bones, IK and create AnimForgeCharacterV2.',
+      inputSchema: CharacterImportInputSchema,
+      annotations: { destructiveHint: false, idempotentHint: false, openWorldHint: false },
+    },
+    async (args) => runTool(() => charService.importCharacter(args))
+  );
+
+  // 3. character_analyze
+  server.registerTool(
+    'character_analyze',
+    {
+      description: 'Analyze artwork image dimensions, alpha silhouette, and aspect ratio.',
+      inputSchema: CharacterAnalyzeInputSchema,
+      annotations: { readOnlyHint: true, openWorldHint: false },
+    },
+    async (args) => runTool(() => charService.analyzeArtwork(args))
+  );
+
+  // 4. character_detect_parts
+  server.registerTool(
+    'character_detect_parts',
+    {
+      description: 'Decompose flat artwork into anatomical body parts (head, torso, arms, legs, face).',
+      inputSchema: CharacterDetectPartsInputSchema,
+      annotations: { readOnlyHint: true, openWorldHint: false },
+    },
+    async (args) => runTool(() => charService.detectParts(args))
+  );
+
+  // 5. character_get_rig
+  server.registerTool(
+    'character_get_rig',
+    {
+      description: 'Retrieve full Rigby2D skeletal rig: bones, slots, IK chains, meshes, animations.',
+      inputSchema: CharacterGetRigInputSchema,
+      annotations: { readOnlyHint: true, openWorldHint: false },
+    },
+    async (args) => runTool(() => charService.getRig(args))
+  );
+
+  // 6. character_create_bone
+  server.registerTool(
+    'character_create_bone',
+    {
+      description: 'Create and add a new bone to a character skeleton.',
+      inputSchema: CharacterCreateBoneInputSchema,
+      annotations: { destructiveHint: false, idempotentHint: false, openWorldHint: false },
+    },
+    async (args) => runTool(() => charService.createBone(args))
+  );
+
+  // 7. character_update_bone
+  server.registerTool(
+    'character_update_bone',
+    {
+      description: 'Update bone transforms, length, parent, or rotation limits.',
+      inputSchema: CharacterUpdateBoneInputSchema,
+      annotations: { destructiveHint: false, idempotentHint: false, openWorldHint: false },
+    },
+    async (args) => runTool(() => charService.updateBone(args))
+  );
+
+  // 8. character_update_weights
+  server.registerTool(
+    'character_update_weights',
+    {
+      description: 'Update vertex bone weights on a deformable mesh.',
+      inputSchema: CharacterUpdateWeightsInputSchema,
+      annotations: { destructiveHint: false, idempotentHint: false, openWorldHint: false },
+    },
+    async (args) => runTool(() => charService.updateWeights(args))
+  );
+
+  // 9. character_create_ik
+  server.registerTool(
+    'character_create_ik',
+    {
+      description: 'Create a 2-bone IK constraint chain (parent bone, child bone, target handle).',
+      inputSchema: CharacterCreateIKInputSchema,
+      annotations: { destructiveHint: false, idempotentHint: false, openWorldHint: false },
+    },
+    async (args) => runTool(() => charService.createIK(args))
+  );
+
+  // 10. character_generate_animation
+  server.registerTool(
+    'character_generate_animation',
+    {
+      description: 'Generate AI motion clip (idle, walk, run, wave, jump, dance, breathing, blink, etc.).',
+      inputSchema: CharacterGenerateAnimationInputSchema,
+      annotations: { destructiveHint: false, idempotentHint: false, openWorldHint: false },
+    },
+    async (args) => runTool(() => charService.generateAnimation(args))
+  );
+
+  // 11. character_update_keyframes
+  server.registerTool(
+    'character_update_keyframes',
+    {
+      description: 'Add or update keyframes for a bone animation channel (rotate, translate, scale).',
+      inputSchema: CharacterUpdateKeyframesInputSchema,
+      annotations: { destructiveHint: false, idempotentHint: false, openWorldHint: false },
+    },
+    async (args) => runTool(() => charService.updateKeyframes(args))
+  );
+
+  // 12. character_preview
+  server.registerTool(
+    'character_preview',
+    {
+      description: 'Evaluate character pose at a given animation time and return bone world transforms.',
+      inputSchema: CharacterPreviewInputSchema,
+      annotations: { readOnlyHint: true, openWorldHint: false },
+    },
+    async (args) => runTool(() => charService.previewCharacter(args))
+  );
+
+  // 13. character_validate
+  server.registerTool(
+    'character_validate',
+    {
+      description: 'Validate character data model, schema compliance, and check for cyclic bone hierarchies.',
+      inputSchema: CharacterValidateInputSchema,
+      annotations: { readOnlyHint: true, openWorldHint: false },
+    },
+    async (args) => runTool(() => charService.validateCharacter(args))
+  );
+
+  // 14. character_save
+  server.registerTool(
+    'character_save',
+    {
+      description: 'Save character JSON to project or global library.',
+      inputSchema: CharacterSaveInputSchema,
+      annotations: { destructiveHint: false, idempotentHint: true, openWorldHint: false },
+    },
+    async (args) => runTool(() => charService.saveCharacter(args))
+  );
+
+  // 15. character_export
+  server.registerTool(
+    'character_export',
+    {
+      description: 'Export character to Spine 3.8/4.2 JSON or AnimForge 2.0 format.',
+      inputSchema: CharacterExportInputSchema,
+      annotations: { readOnlyHint: true, openWorldHint: false },
+    },
+    async (args) => runTool(() => charService.exportCharacter(args))
   );
 
   let closed = false;

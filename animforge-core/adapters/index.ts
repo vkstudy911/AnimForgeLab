@@ -5,3 +5,4 @@ export * from './givemotion.compiler.js';
 export * from './givemotion.adapter.js';
 export * from './remotion.adapter.js';
 export * from './stretchystudio.adapter.js';
+export * from './rigby2d.adapter.js';

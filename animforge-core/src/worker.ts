@@ -7,6 +7,8 @@ import { GivemotionAdapter } from '../adapters/givemotion.adapter.js';
 import { createNodeProcessRunner } from '../adapters/process-runner.js';
 import { RemotionAdapter } from '../adapters/remotion.adapter.js';
 import { StretchyStudioAdapter } from '../adapters/stretchystudio.adapter.js';
+import { Rigby2DAdapter } from '../adapters/rigby2d.adapter.js';
+import { AnimForgeCharacterV2Schema } from '../schemas/character.rigby.js';
 import { CharacterManagerAgent } from '../agents/characterManager.js';
 import { ScenePlannerAgent } from '../agents/scenePlanner.js';
 import { StoryDirectorAgent } from '../agents/storyDirector.js';
@@ -301,6 +303,7 @@ export async function runWorker(workspaceDir: string): Promise<void> {
   const adapter = new GivemotionAdapter(workspaceDir, resolveGivemotionCliPath(workspaceDir), runner);
   const remotionAdapter = new RemotionAdapter(workspaceDir);
   const stretchyAdapter = new StretchyStudioAdapter(workspaceDir);
+  const rigbyAdapter = new Rigby2DAdapter(workspaceDir);
   const storyDirector = new StoryDirectorAgent();
   const characterManager = new CharacterManagerAgent();
   const scenePlanner = new ScenePlannerAgent();
@@ -1053,6 +1056,114 @@ export async function runWorker(workspaceDir: string): Promise<void> {
           cancelledProjects.add(safeProjectId);
         }
         return { projectId: safeProjectId, cancelled };
+      }
+
+      // ---- Character Studio Methods ----
+
+      case 'character_list': {
+        const p = z.object({ projectId: z.string().optional() }).optional().parse(params);
+        const list = await rigbyAdapter.listCharacters(p?.projectId);
+        return { characters: list };
+      }
+
+      case 'character_load': {
+        const { characterId, projectId } = z
+          .object({ characterId: z.string(), projectId: z.string().optional() })
+          .parse(params);
+        const char = await rigbyAdapter.loadCharacter(characterId, projectId);
+        if (!char) {
+          throw new WorkerRpcError('NOT_FOUND', `Character '${characterId}' not found.`);
+        }
+        return { character: char };
+      }
+
+      case 'character_save': {
+        const { character, projectId } = z
+          .object({ character: z.unknown(), projectId: z.string().optional() })
+          .parse(params);
+        const parsed = AnimForgeCharacterV2Schema.parse(character);
+        const savedPath = await rigbyAdapter.saveCharacter(parsed, projectId);
+        return { success: true, characterId: parsed.id, path: savedPath };
+      }
+
+      case 'character_import': {
+        const { artworkPath, name, description, projectId, enableIK, enableMeshes } = z
+          .object({
+            artworkPath: z.string(),
+            name: z.string().optional(),
+            description: z.string().optional(),
+            projectId: z.string().optional(),
+            enableIK: z.boolean().default(true),
+            enableMeshes: z.boolean().default(true),
+          })
+          .parse(params);
+        const char = await rigbyAdapter.importCharacter(artworkPath, {
+          name,
+          description,
+          projectId,
+          enableIK,
+          enableMeshes,
+        });
+        return { character: char };
+      }
+
+      case 'character_generate_motion': {
+        const { characterId, action, duration, fps, intensity, projectId } = z
+          .object({
+            characterId: z.string(),
+            action: z.enum([
+              'idle',
+              'walk',
+              'run',
+              'wave',
+              'jump',
+              'dance',
+              'breathing',
+              'blink',
+              'head_turn',
+              'smile',
+              'hand_gesture',
+            ]),
+            duration: z.number().positive().optional(),
+            fps: z.number().positive().default(30),
+            intensity: z.number().positive().default(1.0),
+            projectId: z.string().optional(),
+          })
+          .parse(params);
+        const char = await rigbyAdapter.loadCharacter(characterId, projectId);
+        if (!char) throw new WorkerRpcError('NOT_FOUND', `Character '${characterId}' not found.`);
+        const clip = rigbyAdapter.generateMotion(char, action, { duration, fps, intensity });
+        await rigbyAdapter.saveCharacter(char, projectId);
+        return { animation: clip, character: char };
+      }
+
+      case 'character_export_spine': {
+        const { characterId, version, projectId } = z
+          .object({
+            characterId: z.string(),
+            version: z.enum(['3.8', '4.2']).default('3.8'),
+            projectId: z.string().optional(),
+          })
+          .parse(params);
+        const char = await rigbyAdapter.loadCharacter(characterId, projectId);
+        if (!char) throw new WorkerRpcError('NOT_FOUND', `Character '${characterId}' not found.`);
+        const spineJson = rigbyAdapter.exportSpineJson(char, version);
+        return { spineJson };
+      }
+
+      case 'character_preview': {
+        const { characterId, animationName, time, projectId } = z
+          .object({
+            characterId: z.string(),
+            animationName: z.string().optional(),
+            time: z.number().nonnegative().default(0),
+            projectId: z.string().optional(),
+          })
+          .parse(params);
+        const char = await rigbyAdapter.loadCharacter(characterId, projectId);
+        if (!char) throw new WorkerRpcError('NOT_FOUND', `Character '${characterId}' not found.`);
+        const pose = rigbyAdapter.evaluatePose(char, animationName, time);
+        return { pose, characterId, time };
       }
 
       default:

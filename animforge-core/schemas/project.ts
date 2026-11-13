@@ -10,7 +10,7 @@ export const ProjectConfigSchema = z.object({
   width: z.number().int().positive().default(1280),
   height: z.number().int().positive().default(720),
   fps: z.number().int().positive().default(30),
-  preferredEngine: z.enum(['givemotion', 'remotion', 'stretchystudio', 'composite']).default('givemotion'),
+  preferredEngine: z.enum(['givemotion', 'remotion', 'stretchystudio', 'composite', 'rigby2d']).default('givemotion'),
 });
 
 export const ProjectSchema = z.object({
@@ -20,7 +20,7 @@ export const ProjectSchema = z.object({
   width: z.number().int().positive(),
   height: z.number().int().positive(),
   fps: z.number().int().positive(),
-  preferredEngine: z.enum(['givemotion', 'remotion', 'stretchystudio', 'composite']),
+  preferredEngine: z.enum(['givemotion', 'remotion', 'stretchystudio', 'composite', 'rigby2d']),
   status: z.enum(['created', 'storyboarded', 'assets_ready', 'scenes_planned', 'rendered', 'completed']).default('created'),
   storyboard: StoryboardSchema.optional(),
   characters: z.array(CharacterSchema).default([]),

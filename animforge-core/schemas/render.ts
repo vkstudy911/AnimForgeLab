@@ -10,7 +10,7 @@ export const RenderJobStatusSchema = z.enum([
 export const RenderJobSchema = z.object({
   id: z.string(),
   projectId: z.string(),
-  engine: z.enum(['givemotion', 'remotion', 'stretchystudio', 'composite']),
+  engine: z.enum(['givemotion', 'remotion', 'stretchystudio', 'composite', 'rigby2d']),
   status: RenderJobStatusSchema,
   progress: z.number().min(0).max(100).default(0),
   outputFilePath: z.string().optional(),

@@ -1065,6 +1065,21 @@ pub async fn config_save(
         .map_err(|err| format!("config_save task failed: {err}"))?
 }
 
+#[tauri::command]
+pub async fn character_invoke(
+    state: tauri::State<'_, Arc<WorkerBridge>>,
+    method: String,
+    params: Option<serde_json::Value>,
+) -> Result<serde_json::Value, String> {
+    let bridge = state.inner().clone();
+    let p = params.unwrap_or_else(|| serde_json::json!({}));
+    tauri::async_runtime::spawn_blocking(move || {
+        bridge.call_json(&method, p, std::time::Duration::from_secs(30))
+    })
+    .await
+    .map_err(|err| format!("character_invoke task failed: {err}"))?
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

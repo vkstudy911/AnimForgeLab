@@ -8,7 +8,7 @@
     "animforge-mcp": "dist/src/mcp/index.js"
   },
   "scripts": {
-    "build": "tsc",
+    "build": "tsc && node -e \"require('fs').cpSync('src/character/engine/rigby', 'dist/src/character/engine/rigby', { recursive: true })\"",
     "mcp:start": "node dist/src/mcp/index.js",
     "test": "tsc && node --test dist/test/*.test.js",
     "test:integration": "tsc && ANIMFORGE_INTEGRATION=1 node --test dist/test/*.integration.test.js",

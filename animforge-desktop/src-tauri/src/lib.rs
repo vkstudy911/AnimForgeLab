@@ -217,6 +217,7 @@ pub fn run() {
             worker_bridge::project_preview,
             worker_bridge::project_render,
             worker_bridge::project_cancel_render,
+            worker_bridge::character_invoke,
         ])
         .build(tauri::generate_context!())
         .expect("error while building AnimForge Studio");

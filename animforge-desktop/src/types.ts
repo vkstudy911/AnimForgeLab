@@ -64,6 +64,67 @@ export interface CharacterAction {
   parameters: Record<string, unknown>;
 }
 
+export interface RigbyBoneSetup {
+  x: number;
+  y: number;
+  rotation: number;
+  scaleX: number;
+  scaleY: number;
+}
+
+export interface DesktopRigbyBone {
+  id: string;
+  name: string;
+  parentIndex: number | null;
+  length: number;
+  setup: RigbyBoneSetup;
+  inherit?: string;
+  rotationLimit?: { min: number; max: number };
+  color?: string;
+}
+
+export interface DesktopRigbySlot {
+  name: string;
+  boneIndex: number;
+  attachmentName: string | null;
+  blend?: string;
+}
+
+export interface DesktopRigbyIK {
+  name: string;
+  bones: [number, number];
+  target: number;
+  bendPositive: boolean;
+  mix: number;
+}
+
+export interface DesktopRigbyMesh {
+  vertices: number[];
+  uvs: number[];
+  triangles: number[];
+  weights: Array<Array<{ boneIndex: number; weight: number }>>;
+}
+
+export interface DesktopRigbyKeyframe<T> {
+  time: number;
+  value: T;
+  curve?: number[];
+}
+
+export interface DesktopRigbyAnimation {
+  name: string;
+  duration: number;
+  fps: number;
+  bones: Record<
+    string,
+    {
+      rotate?: Array<DesktopRigbyKeyframe<number>>;
+      translate?: Array<DesktopRigbyKeyframe<[number, number]>>;
+      scale?: Array<DesktopRigbyKeyframe<[number, number]>>;
+    }
+  >;
+}
+
 export interface CharacterItem {
   id: string;
   name: string;
@@ -71,6 +132,14 @@ export interface CharacterItem {
   parts: CharacterPart[];
   defaultRigId?: string;
   colorPalette: string[];
+  engine?: 'rigby2d' | string;
+  skeleton?: {
+    bones: DesktopRigbyBone[];
+    slots: DesktopRigbySlot[];
+    ik: DesktopRigbyIK[];
+  };
+  meshes?: Record<string, DesktopRigbyMesh>;
+  animations?: Record<string, DesktopRigbyAnimation>;
 }
 
 export type AssetType =

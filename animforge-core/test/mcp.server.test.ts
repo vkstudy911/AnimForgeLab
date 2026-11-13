@@ -28,6 +28,21 @@ const EXPECTED_TOOLS = [
   'animforge_get_render_status',
   'animforge_cancel_render',
   'animforge_export_video',
+  'character_list',
+  'character_import',
+  'character_analyze',
+  'character_detect_parts',
+  'character_get_rig',
+  'character_create_bone',
+  'character_update_bone',
+  'character_update_weights',
+  'character_create_ik',
+  'character_generate_animation',
+  'character_update_keyframes',
+  'character_preview',
+  'character_validate',
+  'character_save',
+  'character_export',
 ];
 
 function parseToolPayload(result: { content: Array<{ type: string; text?: string }>; isError?: boolean }): Record<string, unknown> {

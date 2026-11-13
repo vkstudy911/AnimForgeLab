@@ -448,3 +448,80 @@ test('blob renderer stays the default without a hair part', () => {
   assert.ok(!svg.includes('data-part="hair"'));
   assert.ok(svg.includes('#22c55e'));
 });
+
+test('night theme and star prop come from ordinary editable scene data', () => {
+  const config: ProjectConfig = {
+    ...SAMPLE_CONFIG,
+    name: 'The Little Star Wish',
+    prompt: 'A magical night garden story about a fallen star',
+  };
+  const ground: Scene = {
+    ...SAMPLE_SCENES[0],
+    id: 'scene_star_ground',
+    projectId: 'proj_star',
+    title: 'The Discovery',
+    description: 'Milo finds a fallen star.',
+    duration: 5,
+    timeline: { ...SAMPLE_SCENES[0].timeline, duration: 5, characterActions: [], cameraMoves: [] },
+  };
+  const rise: Scene = {
+    ...ground,
+    id: 'scene_star_rise',
+    sequenceIndex: 1,
+    title: 'The Wish',
+    description: 'The star returns to the sky.',
+    transition: { type: 'slide', duration: 0.4 },
+  };
+  const html = compileProjectHtml({
+    projectId: 'proj_star',
+    config,
+    characters: [SAMPLE_CHARACTER],
+    scenes: [ground, rise],
+  });
+  assert.ok(html.includes('<main data-sequence data-theme="night">'));
+  assert.ok(html.includes('class="af-moon"'));
+  assert.ok(html.includes('class="af-fireflies"'));
+  assert.ok(html.includes('af-prop-star--ground'));
+  assert.ok(html.includes('af-prop-star--rise'));
+  assert.ok(html.includes('data-transition="slide-left 0.4"'));
+});
+
+test('action duration controls finite walk/wave loops and bend opt-in', () => {
+  const scene: Scene = {
+    ...SAMPLE_SCENES[0],
+    id: 'scene_timing',
+    timeline: {
+      ...SAMPLE_SCENES[0].timeline,
+      characterActions: [
+        { actionId: 'walk_1', name: 'walk', startTime: 0, duration: 3.3, parameters: {} },
+        { actionId: 'wave_1', name: 'wave', startTime: 2.5, duration: 2, parameters: { cycles: 3 } },
+        {
+          actionId: 'bend_1',
+          name: 'look_around',
+          startTime: 3.2,
+          duration: 1.5,
+          parameters: { bend: 1, bendDuration: 1.6 },
+        },
+        {
+          actionId: 'hold_1',
+          name: 'idle',
+          startTime: 0,
+          duration: 2,
+          parameters: { hold: 1, holdDuration: 1.2 },
+        },
+      ],
+    },
+  };
+  const html = compileProjectHtml({
+    projectId: 'proj_timing',
+    config: SAMPLE_CONFIG,
+    characters: [SAMPLE_CHARACTER],
+    scenes: [scene],
+  });
+  assert.ok(html.includes('--af-walk-count:6'));
+  assert.ok(html.includes('--af-wave-count:3'));
+  assert.ok(html.includes('--af-bend-delay:3.2s'));
+  assert.ok(html.includes('af-actor--bend'));
+  assert.ok(html.includes('af-actor--hold'));
+  assert.ok(html.includes('--af-hold-dur:1.2s'));
+});

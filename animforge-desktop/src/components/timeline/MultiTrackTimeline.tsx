@@ -1,7 +1,8 @@
 import type React from 'react';
 import { useEffect, useRef, useState } from 'react';
 import { useStudioContext } from '../../context/StudioContext';
-import type { SceneDetail } from '../../types';
+import type { CameraMovement, SceneDetail } from '../../types';
+import type { KeyframeItem } from './CueInspector';
 import {
   ChevronDownIcon,
   ChevronUpIcon,
@@ -82,13 +83,19 @@ function snapValue(rawSec: number, enabled: boolean, magnetTargets: number[] = [
   return Number((Math.round(clamped * 4) / 4).toFixed(2));
 }
 
+export interface MultiTrackTimelineProps {
+  collapsed?: boolean;
+  onToggleCollapse?: () => void;
+  selectedKeyframeId?: string | null;
+  onSelectKeyframe?: (id: string | null) => void;
+}
+
 export function MultiTrackTimeline({
   collapsed = false,
   onToggleCollapse,
-}: {
-  collapsed?: boolean;
-  onToggleCollapse?: () => void;
-}) {
+  selectedKeyframeId,
+  onSelectKeyframe,
+}: MultiTrackTimelineProps = {}) {
   const {
     draftProject,
     selectedSceneId,
@@ -103,6 +110,10 @@ export function MultiTrackTimeline({
     toggleTrackVisibility,
     updateDraft,
   } = useStudioContext();
+
+  const [localKfId, setLocalKfId] = useState<string | null>(null);
+  const activeKfId = selectedKeyframeId !== undefined ? selectedKeyframeId : localKfId;
+  const setActiveKfId = onSelectKeyframe ?? setLocalKfId;
 
   const [snapEnabled, setSnapEnabled] = useState(true);
   const [lockedTracks, setLockedTracks] = useState<Record<TrackKey, boolean>>({
@@ -495,6 +506,166 @@ export function MultiTrackTimeline({
     }
   };
 
+  const canAddKeyframe =
+    (selection?.kind === 'action' && !lockedTracks.actions) ||
+    (selection?.kind === 'camera' && !lockedTracks.camera);
+
+  const handleAddKeyframeAtPlayhead = () => {
+    if (selection?.kind === 'action') {
+      const span = sceneSpans.find((s) => s.scene.id === selection.sceneId);
+      if (!span) return;
+      const action = span.scene.timeline.characterActions.find(
+        (a) => a.actionId === selection.actionId
+      );
+      if (!action) return;
+      const relTime = Number(
+        Math.max(
+          0,
+          Math.min(action.duration, playheadTime - (span.start + action.startTime))
+        ).toFixed(2)
+      );
+      const newKf: KeyframeItem = {
+        id: `kf_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+        time: relTime,
+        property: 'positionX',
+        value: Number(action.parameters?.positionX ?? 0),
+        easing: 'ease-in-out',
+      };
+      const currentKfs = (Array.isArray(action.parameters?.keyframes)
+        ? action.parameters.keyframes
+        : []) as KeyframeItem[];
+      const updatedKfs = [...currentKfs, newKf].sort((a, b) => a.time - b.time);
+      updateDraft((prev) => ({
+        ...prev,
+        scenes: prev.scenes.map((s) =>
+          s.id === selection.sceneId
+            ? {
+                ...s,
+                timeline: {
+                  ...s.timeline,
+                  characterActions: s.timeline.characterActions.map((a) =>
+                    a.actionId === selection.actionId
+                      ? {
+                          ...a,
+                          parameters: {
+                            ...a.parameters,
+                            keyframes: updatedKfs,
+                          },
+                        }
+                      : a
+                  ),
+                },
+              }
+            : s
+        ),
+      }));
+      setActiveKfId(newKf.id);
+    } else if (selection?.kind === 'camera') {
+      const span = sceneSpans.find((s) => s.scene.id === selection.sceneId);
+      if (!span) return;
+      const cam = span.scene.timeline.cameraMoves[selection.index];
+      if (!cam) return;
+      const relTime = Number(
+        Math.max(0, Math.min(cam.duration, playheadTime - span.start)).toFixed(2)
+      );
+      const newKf: KeyframeItem = {
+        id: `kf_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+        time: relTime,
+        property: 'zoom',
+        value: cam.startZoom,
+        easing: 'ease-in-out',
+      };
+      const currentKfs = (
+        ((cam as CameraMovement & { keyframes?: KeyframeItem[] }).keyframes ??
+          []) as KeyframeItem[]
+      );
+      const updatedKfs = [...currentKfs, newKf].sort((a, b) => a.time - b.time);
+      updateDraft((prev) => ({
+        ...prev,
+        scenes: prev.scenes.map((s) =>
+          s.id === selection.sceneId
+            ? {
+                ...s,
+                timeline: {
+                  ...s.timeline,
+                  cameraMoves: s.timeline.cameraMoves.map((c, idx) =>
+                    idx === selection.index
+                      ? {
+                          ...c,
+                          keyframes: updatedKfs,
+                        }
+                      : c
+                  ),
+                },
+              }
+            : s
+        ),
+      }));
+      setActiveKfId(newKf.id);
+    }
+  };
+
+  const handleDeleteSelectedKeyframe = () => {
+    if (!activeKfId) return;
+    if (selection?.kind === 'action') {
+      updateDraft((prev) => ({
+        ...prev,
+        scenes: prev.scenes.map((s) =>
+          s.id === selection.sceneId
+            ? {
+                ...s,
+                timeline: {
+                  ...s.timeline,
+                  characterActions: s.timeline.characterActions.map((a) =>
+                    a.actionId === selection.actionId
+                      ? {
+                          ...a,
+                          parameters: {
+                            ...a.parameters,
+                            keyframes: (
+                              (Array.isArray(a.parameters?.keyframes)
+                                ? a.parameters.keyframes
+                                : []) as KeyframeItem[]
+                            ).filter((k) => k.id !== activeKfId),
+                          },
+                        }
+                      : a
+                  ),
+                },
+              }
+            : s
+        ),
+      }));
+      setActiveKfId(null);
+    } else if (selection?.kind === 'camera') {
+      updateDraft((prev) => ({
+        ...prev,
+        scenes: prev.scenes.map((s) =>
+          s.id === selection.sceneId
+            ? {
+                ...s,
+                timeline: {
+                  ...s.timeline,
+                  cameraMoves: s.timeline.cameraMoves.map((c, idx) =>
+                    idx === selection.index
+                      ? {
+                          ...c,
+                          keyframes: (
+                            ((c as CameraMovement & { keyframes?: KeyframeItem[] }).keyframes ??
+                              []) as KeyframeItem[]
+                          ).filter((k) => k.id !== activeKfId),
+                        }
+                      : c
+                  ),
+                },
+              }
+            : s
+        ),
+      }));
+      setActiveKfId(null);
+    }
+  };
+
   const adjustZoom = (delta: number) => {
     setTimelineZoom((z) => Math.min(4, Math.max(0.5, Number((z + delta).toFixed(2)))));
   };
@@ -536,6 +707,41 @@ export function MultiTrackTimeline({
           >
             <ScissorsIcon size={12} />
             <span>Split</span>
+          </button>
+
+          <button
+            type="button"
+            aria-label="Add Keyframe"
+            title="Add keyframe at current playhead position"
+            disabled={!canAddKeyframe}
+            onClick={handleAddKeyframeAtPlayhead}
+            style={{
+              padding: '2px 6px',
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: 4,
+              fontSize: '11px',
+            }}
+          >
+            <span className="keyframe-diamond" style={{ width: 6, height: 6 }} aria-hidden="true" />
+            <span>Add Keyframe</span>
+          </button>
+
+          <button
+            type="button"
+            aria-label="Delete Keyframe"
+            title="Delete selected keyframe"
+            disabled={!activeKfId}
+            onClick={handleDeleteSelectedKeyframe}
+            style={{
+              padding: '2px 6px',
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: 4,
+              fontSize: '11px',
+            }}
+          >
+            <span>Delete Keyframe</span>
           </button>
 
           <button
@@ -863,6 +1069,52 @@ export function MultiTrackTimeline({
                             <span style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>
                               {label}
                             </span>
+                            {((Array.isArray(action.parameters?.keyframes)
+                              ? action.parameters.keyframes
+                              : []) as KeyframeItem[]).map((kf) => {
+                              const kfLeft = Math.max(0, Math.min(displayedDur, kf.time)) * pxPerSec;
+                              const isKfSelected = activeKfId === kf.id;
+                              return (
+                                <span
+                                  key={kf.id}
+                                  role="button"
+                                  tabIndex={0}
+                                  className="keyframe-diamond"
+                                  aria-label={`Keyframe ${kf.property} at ${kf.time}s`}
+                                  aria-pressed={isKfSelected}
+                                  data-keyframe-id={kf.id}
+                                  onClick={(ev) => {
+                                    ev.stopPropagation();
+                                    setActiveKfId(kf.id);
+                                    setSelectedSceneId(scene.id);
+                                    setSelection({
+                                      kind: 'action',
+                                      sceneId: scene.id,
+                                      actionId: action.actionId,
+                                    });
+                                  }}
+                                  onKeyDown={(ev) => {
+                                    if (ev.key === 'Delete' || ev.key === 'Backspace') {
+                                      ev.stopPropagation();
+                                      handleDeleteSelectedKeyframe();
+                                    }
+                                  }}
+                                  style={{
+                                    position: 'absolute',
+                                    left: `${kfLeft}px`,
+                                    top: '50%',
+                                    marginTop: '-3.5px',
+                                    marginLeft: '-3.5px',
+                                    zIndex: 3,
+                                    cursor: 'pointer',
+                                    border: isKfSelected ? '1.5px solid #fff' : undefined,
+                                    boxShadow: isKfSelected
+                                      ? '0 0 4px var(--accent-cyan, #06b6d4)'
+                                      : undefined,
+                                  }}
+                                />
+                              );
+                            })}
                             {!lockedTracks.actions ? (
                               <span
                                 className="timeline-clip-handle"
@@ -965,11 +1217,74 @@ export function MultiTrackTimeline({
                               width: `${Math.max(36, camDur * pxPerSec - 2)}px`,
                             }}
                           >
-                            <span className="keyframe-diamond" aria-hidden="true" />
-                            <span style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                              {cam.type}
-                            </span>
-                            <span className="keyframe-diamond" aria-hidden="true" />
+                            {(() => {
+                              const camKfs = (
+                                ((cam as CameraMovement & { keyframes?: KeyframeItem[] }).keyframes ??
+                                  []) as KeyframeItem[]
+                              );
+                              if (camKfs.length > 0) {
+                                return (
+                                  <>
+                                    <span style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                                      {cam.type}
+                                    </span>
+                                    {camKfs.map((kf) => {
+                                      const kfLeft = Math.max(0, Math.min(camDur, kf.time)) * pxPerSec;
+                                      const isKfSelected = activeKfId === kf.id;
+                                      return (
+                                        <span
+                                          key={kf.id}
+                                          role="button"
+                                          tabIndex={0}
+                                          className="keyframe-diamond"
+                                          aria-label={`Camera Keyframe ${kf.property} at ${kf.time}s`}
+                                          aria-pressed={isKfSelected}
+                                          data-keyframe-id={kf.id}
+                                          onClick={(ev) => {
+                                            ev.stopPropagation();
+                                            setActiveKfId(kf.id);
+                                            setSelectedSceneId(scene.id);
+                                            setSelection({
+                                              kind: 'camera',
+                                              sceneId: scene.id,
+                                              index: idx,
+                                            });
+                                          }}
+                                          onKeyDown={(ev) => {
+                                            if (ev.key === 'Delete' || ev.key === 'Backspace') {
+                                              ev.stopPropagation();
+                                              handleDeleteSelectedKeyframe();
+                                            }
+                                          }}
+                                          style={{
+                                            position: 'absolute',
+                                            left: `${kfLeft}px`,
+                                            top: '50%',
+                                            marginTop: '-3.5px',
+                                            marginLeft: '-3.5px',
+                                            zIndex: 3,
+                                            cursor: 'pointer',
+                                            border: isKfSelected ? '1.5px solid #fff' : undefined,
+                                            boxShadow: isKfSelected
+                                              ? '0 0 4px var(--accent-cyan, #06b6d4)'
+                                              : undefined,
+                                          }}
+                                        />
+                                      );
+                                    })}
+                                  </>
+                                );
+                              }
+                              return (
+                                <>
+                                  <span className="keyframe-diamond" aria-hidden="true" />
+                                  <span style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                                    {cam.type}
+                                  </span>
+                                  <span className="keyframe-diamond" aria-hidden="true" />
+                                </>
+                              );
+                            })()}
                             {!lockedTracks.camera ? (
                               <span
                                 className="timeline-clip-handle"

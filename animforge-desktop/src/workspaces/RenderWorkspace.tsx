@@ -1,4 +1,4 @@
-import { useId } from 'react';
+import { useId, useState } from 'react';
 import { useStudioContext } from '../context/StudioContext';
 import { ExportIcon, RenderIcon } from '../components/ui/Icons';
 import { NumericInput } from '../components/ui/NumericInput';
@@ -7,6 +7,20 @@ import type { EngineId, FfprobeMetadata } from '../types';
 
 const RING_RADIUS = 40;
 const RING_CIRCUMFERENCE = 2 * Math.PI * RING_RADIUS;
+
+interface ResolutionPreset {
+  label: string;
+  width: number;
+  height: number;
+}
+
+const RESOLUTION_PRESETS: ResolutionPreset[] = [
+  { label: '1080p', width: 1920, height: 1080 },
+  { label: '4K', width: 3840, height: 2160 },
+  { label: '720p', width: 1280, height: 720 },
+  { label: '9:16 vertical', width: 1080, height: 1920 },
+  { label: '1:1 square', width: 1080, height: 1080 },
+];
 
 function formatFfprobeSummary(probe: FfprobeMetadata): string {
   const parts: string[] = [];
@@ -41,6 +55,11 @@ export function RenderWorkspace() {
   const heightId = useId();
   const fpsId = useId();
   const engineId = useId();
+  const formatId = useId();
+  const qualityId = useId();
+
+  const [qualityPreset, setQualityPreset] = useState<'draft' | 'standard' | 'high'>('standard');
+  const [outputFormat, setOutputFormat] = useState<'mp4' | 'webm'>('mp4');
 
   const isRenderingHere = Boolean(
     draftProject && (renderingProjectId === draftProject.id || (busy.rendering && renderingProjectId === null))
@@ -156,6 +175,7 @@ export function RenderWorkspace() {
                   <button
                     type="button"
                     className="btn-danger"
+                    aria-label="Cancel"
                     onClick={() => void cancelRender()}
                     disabled={busy.cancelling}
                   >
@@ -189,6 +209,34 @@ export function RenderWorkspace() {
           </div>
           {draftProject ? (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+              <div className="field">
+                <span className="field-hint" style={{ marginBottom: 4, display: 'block', fontWeight: 600 }}>
+                  Resolution Presets
+                </span>
+                <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                  {RESOLUTION_PRESETS.map((p) => {
+                    const isActive = draftProject.width === p.width && draftProject.height === p.height;
+                    return (
+                      <button
+                        key={p.label}
+                        type="button"
+                        className={isActive ? 'btn-primary' : 'btn-ghost'}
+                        disabled={isRenderingHere}
+                        onClick={() =>
+                          updateDraft((prev) => ({
+                            ...prev,
+                            width: p.width,
+                            height: p.height,
+                          }))
+                        }
+                      >
+                        {p.label}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+
               <div className="dialog-two-col">
                 <div className="field">
                   <label htmlFor={widthId}>Width (px)</label>
@@ -258,6 +306,34 @@ export function RenderWorkspace() {
                 </div>
               </div>
 
+              <div className="dialog-two-col">
+                <div className="field">
+                  <label htmlFor={formatId}>Format / Codec</label>
+                  <select
+                    id={formatId}
+                    value={outputFormat}
+                    disabled={isRenderingHere}
+                    onChange={(ev) => setOutputFormat(ev.target.value as 'mp4' | 'webm')}
+                  >
+                    <option value="mp4">MP4 (H.264 / AAC)</option>
+                    <option value="webm">WebM (VP9 / Opus)</option>
+                  </select>
+                </div>
+                <div className="field">
+                  <label htmlFor={qualityId}>Quality Preset</label>
+                  <select
+                    id={qualityId}
+                    value={qualityPreset}
+                    disabled={isRenderingHere}
+                    onChange={(ev) => setQualityPreset(ev.target.value as 'draft' | 'standard' | 'high')}
+                  >
+                    <option value="draft">Draft (Fast preview)</option>
+                    <option value="standard">Standard (Production CR23)</option>
+                    <option value="high">High (Archival CR18)</option>
+                  </select>
+                </div>
+              </div>
+
               <dl
                 style={{
                   display: 'grid',
@@ -267,10 +343,16 @@ export function RenderWorkspace() {
                 }}
               >
                 <dt className="field-hint">Format / Codec</dt>
-                <dd className="mono">H.264 / MP4</dd>
+                <dd className="mono">
+                  {outputFormat === 'mp4' ? 'H.264 / MP4' : 'VP9 / WebM'}
+                </dd>
+                <dt className="field-hint">Quality Preset</dt>
+                <dd className="mono">
+                  {qualityPreset.toUpperCase()}
+                </dd>
                 <dt className="field-hint">Output Path</dt>
                 <dd className="mono" style={{ wordBreak: 'break-all' }}>
-                  projects/{draftProject.id}/output.mp4
+                  projects/{draftProject.id}/output.{outputFormat}
                 </dd>
               </dl>
             </div>

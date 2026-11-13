@@ -12,6 +12,8 @@ import {
 } from '../components/ui/Icons';
 import { SceneThumb } from '../components/ui/SceneThumb';
 import { StatusBadge, type BadgeTone } from '../components/ui/StatusBadge';
+import { StudioButton } from '../components/ui/StudioButton';
+import { StudioTooltip } from '../components/ui/StudioTooltip';
 
 interface StarterTemplate {
   id: string;
@@ -80,6 +82,17 @@ function projectStatusTone(status: string): BadgeTone {
   return 'neutral';
 }
 
+function formatActivityTime(iso: string): string {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return iso;
+  return d.toLocaleDateString(undefined, {
+    month: 'short',
+    day: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+  });
+}
+
 export function HomeDashboard() {
   const {
     projects,
@@ -95,12 +108,25 @@ export function HomeDashboard() {
     renderingProjectId,
     renderProgress,
     cancelRender,
+    renderHistory,
     busy,
   } = useStudioContext();
 
   const recentProjects = [...projects]
     .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
     .slice(0, 6);
+
+  const totalProjects = projects.length;
+  const scenesPlannedCount = projects.filter(
+    (p) => p.status.toLowerCase().includes('scenes_planned') || p.status.toLowerCase().includes('plan')
+  ).length;
+  const renderedCount = projects.filter(
+    (p) => p.status.toLowerCase() === 'rendered' || p.status.toLowerCase() === 'completed'
+  ).length;
+
+  // Storage estimate: ~14MB per project draft data + ~28MB per rendered artifact in renderHistory
+  const estStorageMb = totalProjects === 0 ? 0 : Math.round(totalProjects * 14 + (renderHistory?.length ?? 0) * 28);
+  const formattedStorage = estStorageMb >= 1024 ? `${(estStorageMb / 1024).toFixed(1)} GB` : `${estStorageMb} MB`;
 
   const isRendering = renderingProjectId !== null || busy.rendering;
   const renderingName =
@@ -115,6 +141,7 @@ export function HomeDashboard() {
 
   return (
     <div className="page-container">
+      {/* Welcome Banner */}
       <section className="panel" aria-labelledby="home-welcome-heading">
         <div className="page-header-row">
           <div>
@@ -123,64 +150,81 @@ export function HomeDashboard() {
               Local-first 2D storyboarding, keyframe animation, and deterministic MP4 rendering.
             </p>
           </div>
-          <button
-            type="button"
-            className="btn-primary"
+          <StudioButton
+            variant="primary"
             onClick={() => setNewProjectDialogOpen(true)}
-            style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}
+            icon={<PlusIcon size={14} />}
           >
-            <PlusIcon size={14} />
-            <span>+ New Project</span>
-          </button>
+            + New Project
+          </StudioButton>
         </div>
 
         <nav
           aria-label="Quick Workspace Navigation"
           style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginTop: 12 }}
         >
-          <button
-            type="button"
-            onClick={() => navigate('projects')}
-            style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}
-          >
-            <ProjectsIcon size={14} />
-            <span>Projects</span>
-          </button>
-          <button
-            type="button"
-            onClick={() => navigate('story')}
-            style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}
-          >
-            <StoryIcon size={14} />
-            <span>Story &amp; Scenes</span>
-          </button>
-          <button
-            type="button"
-            onClick={() => navigate('studio')}
-            style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}
-          >
-            <StudioIcon size={14} />
-            <span>Animation Studio</span>
-          </button>
-          <button
-            type="button"
-            onClick={() => navigate('render')}
-            style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}
-          >
-            <RenderIcon size={14} />
-            <span>Render &amp; Export</span>
-          </button>
-          <button
-            type="button"
-            onClick={() => navigate('diagnostics')}
-            style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}
-          >
-            <DiagnosticsIcon size={14} />
-            <span>Diagnostics</span>
-          </button>
+          <StudioButton variant="secondary" size="sm" onClick={() => navigate('projects')} icon={<ProjectsIcon size={14} />}>
+            Projects
+          </StudioButton>
+          <StudioButton variant="secondary" size="sm" onClick={() => navigate('story')} icon={<StoryIcon size={14} />}>
+            Story &amp; Scenes
+          </StudioButton>
+          <StudioButton variant="secondary" size="sm" onClick={() => navigate('studio')} icon={<StudioIcon size={14} />}>
+            Animation Studio
+          </StudioButton>
+          <StudioButton variant="secondary" size="sm" onClick={() => navigate('render')} icon={<RenderIcon size={14} />}>
+            Render &amp; Export
+          </StudioButton>
+          <StudioButton variant="secondary" size="sm" onClick={() => navigate('diagnostics')} icon={<DiagnosticsIcon size={14} />}>
+            Diagnostics
+          </StudioButton>
         </nav>
       </section>
 
+      {/* Project Statistics Banner */}
+      <section className="panel" aria-label="Project Statistics" style={{ padding: '12px 16px' }}>
+        <div
+          style={{
+            display: 'grid',
+            gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))',
+            gap: 12,
+            alignItems: 'center',
+          }}
+        >
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+            <span className="field-hint" style={{ fontSize: 'var(--text-xs)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+              Total Projects
+            </span>
+            <strong style={{ fontSize: 'var(--text-lg)', fontWeight: 700 }}>{totalProjects}</strong>
+          </div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+            <span className="field-hint" style={{ fontSize: 'var(--text-xs)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+              Scenes Planned
+            </span>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+              <strong style={{ fontSize: 'var(--text-lg)', fontWeight: 700 }}>{scenesPlannedCount}</strong>
+              {scenesPlannedCount > 0 ? <StatusBadge tone="warn">Active</StatusBadge> : null}
+            </div>
+          </div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+            <span className="field-hint" style={{ fontSize: 'var(--text-xs)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+              Rendered / Completed
+            </span>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+              <strong style={{ fontSize: 'var(--text-lg)', fontWeight: 700 }}>{renderedCount}</strong>
+              {renderedCount > 0 ? <StatusBadge tone="pass">Ready</StatusBadge> : null}
+            </div>
+          </div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+            <span className="field-hint" style={{ fontSize: 'var(--text-xs)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+              Est. Storage
+            </span>
+            <strong className="mono" style={{ fontSize: 'var(--text-md)', fontWeight: 600 }}>{formattedStorage}</strong>
+          </div>
+        </div>
+      </section>
+
+      {/* Active Render Notification */}
       {isRendering ? (
         <section className="panel" aria-label="Active Render">
           <div className="page-header-row">
@@ -191,17 +235,16 @@ export function HomeDashboard() {
               </p>
             </div>
             <div style={{ display: 'flex', gap: 8 }}>
-              <button type="button" onClick={() => navigate('render')}>
+              <StudioButton variant="secondary" onClick={() => navigate('render')}>
                 View Render
-              </button>
-              <button
-                type="button"
-                className="btn-danger"
+              </StudioButton>
+              <StudioButton
+                variant="danger"
                 onClick={() => void cancelRender()}
                 disabled={busy.cancelling}
               >
                 {busy.cancelling ? 'Cancelling...' : 'Cancel'}
-              </button>
+              </StudioButton>
             </div>
           </div>
           <progress
@@ -216,6 +259,7 @@ export function HomeDashboard() {
       ) : null}
 
       <div className="grid-2">
+        {/* Starter Templates */}
         <section className="panel" aria-labelledby="starter-templates-heading">
           <div className="page-header-row" style={{ marginBottom: 10 }}>
             <h3 id="starter-templates-heading">Starter Templates</h3>
@@ -241,8 +285,8 @@ export function HomeDashboard() {
                     {tpl.width}x{tpl.height} · {tpl.fps} FPS
                   </div>
                 </div>
-                <button
-                  type="button"
+                <StudioButton
+                  variant="secondary"
                   onClick={() =>
                     void createAndOpenProject(
                       tpl.projectName,
@@ -257,17 +301,19 @@ export function HomeDashboard() {
                     )
                   }
                   disabled={busy.creating || busy.rendering}
+                  loading={busy.creating}
                 >
-                  {busy.creating ? 'Creating...' : 'Launch Template'}
-                </button>
+                  Launch Template
+                </StudioButton>
               </article>
             ))}
           </div>
         </section>
 
+        {/* System Health Card */}
         <section className="panel" aria-labelledby="env-health-heading">
           <div className="page-header-row" style={{ marginBottom: 10 }}>
-            <h3 id="env-health-heading">Environment Health</h3>
+            <h3 id="env-health-heading">System Health</h3>
             {doctorReport ? (
               <StatusBadge
                 tone={
@@ -323,22 +369,44 @@ export function HomeDashboard() {
         </section>
       </div>
 
+      {/* Recent Projects & Activity Feed */}
       <section className="panel" aria-labelledby="recent-projects-heading">
         <div className="page-header-row" style={{ marginBottom: 10 }}>
           <h3 id="recent-projects-heading">Recent Projects</h3>
-          <button type="button" onClick={() => navigate('projects')}>
+          <StudioButton variant="secondary" size="sm" onClick={() => navigate('projects')}>
             Manage All ({projects.length})
-          </button>
+          </StudioButton>
         </div>
 
         {busy.loadingList ? (
           <p className="field-hint">Loading workspace projects...</p>
         ) : recentProjects.length === 0 ? (
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
-            <p className="field-hint">No projects yet. Launch a starter template or create a new project.</p>
-            <button type="button" className="btn-primary" onClick={() => setNewProjectDialogOpen(true)}>
+          <div
+            style={{
+              padding: '24px 16px',
+              textAlign: 'center',
+              display: 'flex',
+              flexDirection: 'column',
+              alignItems: 'center',
+              gap: 10,
+              background: 'var(--bg-surface-elevated)',
+              borderRadius: 'var(--radius-sm)',
+            }}
+          >
+            <ProjectsIcon size={28} className="field-hint" />
+            <div>
+              <strong style={{ display: 'block', marginBottom: 4 }}>No projects in workspace</strong>
+              <p className="field-hint">
+                Launch one of the starter templates above or create a new custom animation project.
+              </p>
+            </div>
+            <StudioButton
+              variant="primary"
+              onClick={() => setNewProjectDialogOpen(true)}
+              icon={<PlusIcon size={14} />}
+            >
               + New Project
-            </button>
+            </StudioButton>
           </div>
         ) : (
           <div className="grid-3">
@@ -356,22 +424,41 @@ export function HomeDashboard() {
               >
                 <SceneThumb title={p.name} badge={`${p.width}x${p.height}`} />
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
-                  <strong style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                    {p.name}
-                  </strong>
+                  <StudioTooltip content={p.name}>
+                    <strong style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                      {p.name}
+                    </strong>
+                  </StudioTooltip>
                   <StatusBadge tone={projectStatusTone(p.status)}>{p.status}</StatusBadge>
                 </div>
-                <div className="mono field-hint">
-                  {p.width}x{p.height} · {p.fps} FPS
+                <div
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    fontSize: 'var(--text-xs)',
+                    color: 'var(--text-secondary)',
+                  }}
+                >
+                  <span className="mono">
+                    {p.width}x{p.height} · {p.fps} FPS
+                  </span>
+                  {p.preferredEngine ? (
+                    <span className="badge badge-neutral" style={{ fontSize: 'var(--text-xs)' }}>
+                      {p.preferredEngine}
+                    </span>
+                  ) : null}
                 </div>
-                <button
-                  type="button"
-                  className="btn-primary"
+                <div className="mono field-hint" style={{ fontSize: 'var(--text-xs)' }}>
+                  Updated {formatActivityTime(p.updatedAt)}
+                </div>
+                <StudioButton
+                  variant="primary"
                   onClick={() => void openProject(p.id, 'studio')}
                   disabled={busy.loadingProject}
                 >
                   Open
-                </button>
+                </StudioButton>
               </article>
             ))}
           </div>

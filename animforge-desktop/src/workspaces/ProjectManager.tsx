@@ -7,6 +7,8 @@ import { CopyIcon, ExportIcon, SearchIcon, TrashIcon } from '../components/ui/Ic
 import { NumericInput } from '../components/ui/NumericInput';
 import { SceneThumb } from '../components/ui/SceneThumb';
 import { StatusBadge, type BadgeTone } from '../components/ui/StatusBadge';
+import { StudioButton } from '../components/ui/StudioButton';
+import { StudioTooltip } from '../components/ui/StudioTooltip';
 
 const ASPECT_PRESETS = [
   { label: '16:9', width: 1920, height: 1080 },
@@ -14,6 +16,8 @@ const ASPECT_PRESETS = [
   { label: '1:1', width: 1080, height: 1080 },
   { label: '4:3', width: 1440, height: 1080 },
 ] as const;
+
+export type ProjectSortKey = 'default' | 'date_desc' | 'date_asc' | 'name_asc' | 'name_desc';
 
 async function readTextFile(file: File): Promise<string> {
   if (typeof file.text === 'function') {
@@ -68,6 +72,7 @@ export function ProjectManager() {
 
   const [query, setQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState<string>('all');
+  const [sortKey, setSortKey] = useState<ProjectSortKey>('default');
   const [actionError, setActionError] = useState<string | null>(null);
   const [renamingId, setRenamingId] = useState<string | null>(null);
   const [renameValue, setRenameValue] = useState('');
@@ -93,6 +98,7 @@ export function ProjectManager() {
   const promptId = useId();
   const promptErrId = useId();
   const statusSelectId = useId();
+  const sortSelectId = useId();
   const engineSelectId = useId();
   const activeWidthId = useId();
   const activeHeightId = useId();
@@ -108,9 +114,9 @@ export function ProjectManager() {
     return Array.from(set).sort();
   }, [projects]);
 
-  const filteredProjects = useMemo(() => {
+  const filteredAndSortedProjects = useMemo(() => {
     const q = query.trim().toLowerCase();
-    return projects.filter((p) => {
+    const filtered = projects.filter((p) => {
       if (statusFilter !== 'all' && p.status !== statusFilter) return false;
       if (!q) return true;
       return (
@@ -119,7 +125,25 @@ export function ProjectManager() {
         p.status.toLowerCase().includes(q)
       );
     });
-  }, [projects, query, statusFilter]);
+
+    if (sortKey === 'default') {
+      return filtered;
+    }
+
+    return [...filtered].sort((a, b) => {
+      switch (sortKey) {
+        case 'date_asc':
+          return a.updatedAt.localeCompare(b.updatedAt);
+        case 'name_asc':
+          return a.name.localeCompare(b.name, undefined, { sensitivity: 'base' });
+        case 'name_desc':
+          return b.name.localeCompare(a.name, undefined, { sensitivity: 'base' });
+        case 'date_desc':
+        default:
+          return b.updatedAt.localeCompare(a.updatedAt);
+      }
+    });
+  }, [projects, query, statusFilter, sortKey]);
 
   const handleRenameSubmit = async (ev: React.FormEvent, project: ProjectSummary) => {
     ev.preventDefault();
@@ -233,13 +257,11 @@ export function ProjectManager() {
       <div className="split-layout">
         <section className="panel" aria-labelledby="projects-list-heading">
           <div className="page-header-row" style={{ marginBottom: 12 }}>
-            <h2 id="projects-list-heading">Projects ({filteredProjects.length})</h2>
+            <h2 id="projects-list-heading">Projects ({filteredAndSortedProjects.length})</h2>
             <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 6, minWidth: 190 }}>
-                <SearchIcon
-                  size={14}
-                  className="field-hint"
-                />
+              {/* Search input */}
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6, minWidth: 180 }}>
+                <SearchIcon size={14} className="field-hint" />
                 <input
                   type="search"
                   aria-label="Search projects"
@@ -248,6 +270,8 @@ export function ProjectManager() {
                   onChange={(ev) => setQuery(ev.target.value)}
                 />
               </div>
+
+              {/* Status filter dropdown */}
               <label htmlFor={statusSelectId} className="sr-only">
                 Filter by status
               </label>
@@ -256,15 +280,39 @@ export function ProjectManager() {
                 aria-label="Filter by status"
                 value={statusFilter}
                 onChange={(ev) => setStatusFilter(ev.target.value)}
-                style={{ width: 'auto', minWidth: 130 }}
+                style={{ width: 'auto', minWidth: 120 }}
               >
                 <option value="all">All Statuses</option>
-                {statuses.map((st) => (
-                  <option key={st} value={st}>
-                    {st}
-                  </option>
-                ))}
+                <option value="scenes_planned">scenes_planned</option>
+                <option value="rendered">rendered</option>
+                <option value="failed">failed</option>
+                {statuses
+                  .filter((st) => !['all', 'scenes_planned', 'rendered', 'failed'].includes(st))
+                  .map((st) => (
+                    <option key={st} value={st}>
+                      {st}
+                    </option>
+                  ))}
               </select>
+
+              {/* Sort dropdown */}
+              <label htmlFor={sortSelectId} className="sr-only">
+                Sort projects
+              </label>
+              <select
+                id={sortSelectId}
+                aria-label="Sort projects"
+                value={sortKey}
+                onChange={(ev) => setSortKey(ev.target.value as ProjectSortKey)}
+                style={{ width: 'auto', minWidth: 150 }}
+              >
+                <option value="default">Default Order</option>
+                <option value="date_desc">Modification Date: Newest first</option>
+                <option value="date_asc">Modification Date: Oldest first</option>
+                <option value="name_asc">Name: A-Z</option>
+                <option value="name_desc">Name: Z-A</option>
+              </select>
+
               <input
                 ref={importInputRef}
                 type="file"
@@ -273,13 +321,14 @@ export function ProjectManager() {
                 className="sr-only"
                 onChange={(ev) => void handleImportFileChange(ev)}
               />
-              <button
-                type="button"
+              <StudioButton
+                variant="secondary"
+                size="sm"
                 onClick={() => importInputRef.current?.click()}
                 disabled={busy.creating || busy.rendering}
               >
                 Import JSON
-              </button>
+              </StudioButton>
             </div>
           </div>
 
@@ -294,7 +343,7 @@ export function ProjectManager() {
 
           {busy.loadingList ? (
             <p className="field-hint">Loading workspace projects...</p>
-          ) : filteredProjects.length === 0 ? (
+          ) : filteredAndSortedProjects.length === 0 ? (
             <p className="field-hint">
               {projects.length === 0
                 ? 'No projects yet. Create one using the New Project panel.'
@@ -302,7 +351,7 @@ export function ProjectManager() {
             </p>
           ) : (
             <ul role="list" style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-              {filteredProjects.map((p) => {
+              {filteredAndSortedProjects.map((p) => {
                 const isActive = activeProject?.id === p.id;
                 const isRenaming = renamingId === p.id;
                 return (
@@ -324,9 +373,11 @@ export function ProjectManager() {
                     <div style={{ minWidth: 0, display: 'flex', flexDirection: 'column', gap: 6 }}>
                       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
                         <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 }}>
-                          <strong style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                            {p.name}
-                          </strong>
+                          <StudioTooltip content={p.name}>
+                            <strong style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                              {p.name}
+                            </strong>
+                          </StudioTooltip>
                           {isActive ? <StatusBadge tone="pass">Active</StatusBadge> : null}
                         </div>
                         <StatusBadge tone={statusTone(p.status)}>{p.status}</StatusBadge>
@@ -343,8 +394,24 @@ export function ProjectManager() {
                         {p.prompt}
                       </p>
 
-                      <div className="mono field-hint">
-                        {p.width}x{p.height} · {p.fps} FPS · Updated {formatUpdatedAt(p.updatedAt)}
+                      <div
+                        style={{
+                          display: 'flex',
+                          alignItems: 'center',
+                          flexWrap: 'wrap',
+                          gap: 8,
+                          fontSize: 'var(--text-xs)',
+                        }}
+                      >
+                        <span className="mono field-hint">
+                          {p.width}x{p.height} · {p.fps} FPS
+                        </span>
+                        {p.preferredEngine ? (
+                          <span className="badge badge-neutral" style={{ fontSize: 'var(--text-xs)' }}>
+                            {p.preferredEngine}
+                          </span>
+                        ) : null}
+                        <span className="mono field-hint">· Updated {formatUpdatedAt(p.updatedAt)}</span>
                       </div>
 
                       {isRenaming ? (
@@ -373,16 +440,17 @@ export function ProjectManager() {
                         </form>
                       ) : (
                         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 2 }}>
-                          <button
-                            type="button"
-                            className="btn-primary"
+                          <StudioButton
+                            variant="primary"
+                            size="sm"
                             onClick={() => void openProject(p.id, 'studio')}
                             disabled={busy.loadingProject}
                           >
                             Open
-                          </button>
-                          <button
-                            type="button"
+                          </StudioButton>
+                          <StudioButton
+                            variant="secondary"
+                            size="sm"
                             onClick={() => {
                               setRenamingId(p.id);
                               setRenameValue(p.name);
@@ -390,39 +458,40 @@ export function ProjectManager() {
                             }}
                           >
                             Rename
-                          </button>
-                          <button
-                            type="button"
+                          </StudioButton>
+                          <StudioButton
+                            variant="secondary"
+                            size="sm"
                             onClick={() => void handleExportJson(p)}
                             disabled={exportingId === p.id}
-                            style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}
+                            icon={<ExportIcon size={13} />}
                           >
-                            <ExportIcon size={13} />
-                            <span>{exportingId === p.id ? 'Exporting...' : 'Export JSON'}</span>
-                          </button>
-                          <button
-                            type="button"
+                            {exportingId === p.id ? 'Exporting...' : 'Export JSON'}
+                          </StudioButton>
+                          <StudioButton
+                            variant="secondary"
+                            size="sm"
                             onClick={() => void revealInWorkspace(`projects/${p.id}`)}
                           >
                             Reveal Folder
-                          </button>
-                          <button
-                            type="button"
+                          </StudioButton>
+                          <StudioButton
+                            variant="secondary"
+                            size="sm"
                             disabled={busy.creating || busy.rendering}
                             onClick={() => {
                               setActionError(null);
                               void duplicateProject(p.id);
                             }}
-                            style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}
+                            icon={<CopyIcon size={13} />}
                           >
-                            <CopyIcon size={13} />
-                            <span>Duplicate</span>
-                          </button>
+                            Duplicate
+                          </StudioButton>
                           {confirmDeleteId === p.id ? (
                             <>
-                              <button
-                                type="button"
-                                className="btn-danger"
+                              <StudioButton
+                                variant="danger"
+                                size="sm"
                                 disabled={busy.rendering}
                                 onClick={async () => {
                                   setConfirmDeleteId(null);
@@ -430,24 +499,24 @@ export function ProjectManager() {
                                 }}
                               >
                                 Confirm Delete
-                              </button>
-                              <button type="button" onClick={() => setConfirmDeleteId(null)}>
+                              </StudioButton>
+                              <StudioButton variant="secondary" size="sm" onClick={() => setConfirmDeleteId(null)}>
                                 Cancel
-                              </button>
+                              </StudioButton>
                             </>
                           ) : (
-                            <button
-                              type="button"
+                            <StudioButton
+                              variant="secondary"
+                              size="sm"
                               disabled={busy.rendering}
                               onClick={() => {
                                 setActionError(null);
                                 setConfirmDeleteId(p.id);
                               }}
-                              style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}
+                              icon={<TrashIcon size={13} />}
                             >
-                              <TrashIcon size={13} />
-                              <span>Delete</span>
-                            </button>
+                              Delete
+                            </StudioButton>
                           )}
                         </div>
                       )}
@@ -459,6 +528,7 @@ export function ProjectManager() {
           )}
         </section>
 
+        {/* Embedded New Project form */}
         <section className="panel" aria-labelledby={newHeadingId}>
           <h2 id={newHeadingId} style={{ marginBottom: 4 }}>
             New Project
@@ -593,15 +663,17 @@ export function ProjectManager() {
               </select>
             </div>
 
-            <button
+            <StudioButton
               type="submit"
-              className="btn-primary"
+              variant="primary"
               disabled={busy.creating || busy.rendering}
+              loading={busy.creating}
             >
-              {busy.creating ? 'Creating...' : 'Create Project'}
-            </button>
+              Create Project
+            </StudioButton>
           </form>
 
+          {/* Active Project Settings */}
           {draftProject ? (
             <section
               aria-labelledby={activeSettingsHeadingId}
@@ -668,7 +740,7 @@ export function ProjectManager() {
                     id={activeEngineId}
                     value={draftProject.preferredEngine}
                     onChange={(ev) =>
-                      updateDraft((prev) => ({ ...prev, preferredEngine: ev.target.value }))
+                      updateDraft((prev) => ({ ...prev, preferredEngine: ev.target.value as EngineId }))
                     }
                   >
                     <option value="givemotion">GiveMotion</option>
@@ -678,13 +750,15 @@ export function ProjectManager() {
                   </select>
                 </div>
               </div>
-              <button
+              <StudioButton
                 type="button"
+                variant="secondary"
                 disabled={busy.saving || busy.rendering}
+                loading={busy.saving}
                 onClick={() => void saveDraft('Saved project settings.')}
               >
-                {busy.saving ? 'Saving...' : 'Save Project Settings'}
-              </button>
+                Save Project Settings
+              </StudioButton>
             </section>
           ) : null}
         </section>

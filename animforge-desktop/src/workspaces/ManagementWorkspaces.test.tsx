@@ -6,6 +6,7 @@ import { DiagnosticsWorkspace } from './DiagnosticsWorkspace';
 import { HomeDashboard } from './HomeDashboard';
 import { ProjectManager } from './ProjectManager';
 import { RenderWorkspace } from './RenderWorkspace';
+import { SettingsWorkspace } from './SettingsWorkspace';
 import { StoryScenesWorkspace } from './StoryScenesWorkspace';
 
 const mockInvoke = vi.fn();
@@ -187,6 +188,26 @@ beforeEach(() => {
       }
       case 'project_cancel_render':
         return { projectId: String(args?.projectId ?? 'proj_1'), cancelled: true };
+      case 'config_get':
+        return {
+          config: {
+            defaultWidth: 1920,
+            defaultHeight: 1080,
+            defaultFps: 30,
+            defaultEngine: 'givemotion',
+            density: 'comfortable',
+            reducedEffects: false,
+            showSafeZonesByDefault: true,
+          },
+          configPath: '/ws/animforge.config.json',
+          exists: true,
+        };
+      case 'config_save':
+        return {
+          config: (args as { config: unknown }).config,
+          configPath: '/ws/animforge.config.json',
+          exists: true,
+        };
       default:
         return null;
     }
@@ -845,5 +866,96 @@ describe('Management Workspaces & Diagnostics', () => {
       expect(screen.getByText('Offline')).toBeTruthy();
       expect(screen.getByText(/Connection refused/i)).toBeTruthy();
     });
+  });
+
+  it('HomeDashboard renders Project Statistics banner and tracks project metrics', async () => {
+    renderWithProvider(<HomeDashboard />);
+    await waitFor(() => expect(screen.getByText('Comet Chase')).toBeTruthy());
+
+    // Statistics Banner
+    expect(screen.getByText('Total Projects')).toBeTruthy();
+    expect(screen.getByText('Scenes Planned')).toBeTruthy();
+    expect(screen.getByText('Rendered / Completed')).toBeTruthy();
+    expect(screen.getByText('Est. Storage')).toBeTruthy();
+
+    const statBanner = screen.getByLabelText('Project Statistics');
+    expect(within(statBanner).getByText('2')).toBeTruthy();
+    expect(within(statBanner).getAllByText('1').length).toBeGreaterThanOrEqual(2);
+  });
+
+  it('ProjectManager sorts projects by Name and Date and filters by status', async () => {
+    renderWithProvider(<ProjectManager />);
+    await waitFor(() => expect(screen.getByText('Comet Chase')).toBeTruthy());
+
+    const sortSelect = screen.getByLabelText('Sort projects');
+    const filterSelect = screen.getByLabelText('Filter by status');
+
+    // Filter by rendered
+    fireEvent.change(filterSelect, { target: { value: 'rendered' } });
+    expect(screen.getByText('Lantern Fox')).toBeTruthy();
+    expect(screen.queryByText('Comet Chase')).toBeNull();
+
+    // Filter back to all
+    fireEvent.change(filterSelect, { target: { value: 'all' } });
+    expect(screen.getByText('Comet Chase')).toBeTruthy();
+    expect(screen.getByText('Lantern Fox')).toBeTruthy();
+
+    // Sort by Name: Z-A
+    fireEvent.change(sortSelect, { target: { value: 'name_desc' } });
+    const itemsDesc = screen.getAllByRole('listitem');
+    expect(within(itemsDesc[0]).getByText('Lantern Fox')).toBeTruthy();
+    expect(within(itemsDesc[1]).getByText('Comet Chase')).toBeTruthy();
+
+    // Sort by Name: A-Z
+    fireEvent.change(sortSelect, { target: { value: 'name_asc' } });
+    const itemsAsc = screen.getAllByRole('listitem');
+    expect(within(itemsAsc[0]).getByText('Comet Chase')).toBeTruthy();
+    expect(within(itemsAsc[1]).getByText('Lantern Fox')).toBeTruthy();
+
+    // Sort by Date: Oldest first (Lantern Fox updated Nov 11, Comet Chase updated Nov 12)
+    fireEvent.change(sortSelect, { target: { value: 'date_asc' } });
+    const itemsOldest = screen.getAllByRole('listitem');
+    expect(within(itemsOldest[0]).getByText('Lantern Fox')).toBeTruthy();
+    expect(within(itemsOldest[1]).getByText('Comet Chase')).toBeTruthy();
+  });
+
+  it('SettingsWorkspace manages export defaults, triggers save notification, and persists disk configuration', async () => {
+    renderWithProvider(<SettingsWorkspace />);
+    await waitFor(() => expect(screen.getByText('Export Defaults')).toBeTruthy());
+
+    // Switch export format to WEBM
+    const webmBtn = screen.getByRole('button', { name: 'WEBM' });
+    fireEvent.click(webmBtn);
+    expect(webmBtn.getAttribute('aria-pressed')).toBe('true');
+    expect(screen.getByText('Export defaults updated successfully.')).toBeTruthy();
+
+    // Change render quality to Draft
+    const draftBtn = screen.getByRole('button', { name: /Draft \(CRF 28\)/i });
+    fireEvent.click(draftBtn);
+    expect(draftBtn.getAttribute('aria-pressed')).toBe('true');
+
+    // Change export destination subfolder
+    const folderInput = screen.getByLabelText('Export Destination Subfolder') as HTMLInputElement;
+    fireEvent.change(folderInput, { target: { value: 'custom_renders' } });
+    expect(folderInput.value).toBe('custom_renders');
+
+    // Save to Disk persists configuration
+    const saveDiskBtn = screen.getByRole('button', { name: 'Save to Disk' });
+    fireEvent.click(saveDiskBtn);
+    await waitFor(() => {
+      expect(mockInvoke).toHaveBeenCalledWith('config_save', {
+        config: expect.objectContaining({
+          density: 'comfortable',
+          defaultFps: 30,
+          defaultWidth: 1920,
+          defaultHeight: 1080,
+        }),
+      });
+      expect(screen.getByText(/Studio configuration persisted to/i)).toBeTruthy();
+    });
+
+    // Reset to defaults
+    fireEvent.click(screen.getByRole('button', { name: 'Reset to Defaults' }));
+    expect(screen.getByText('Configuration reset to studio factory defaults.')).toBeTruthy();
   });
 });

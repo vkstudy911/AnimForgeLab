@@ -1,8 +1,10 @@
-import { useId, useState } from 'react';
+import { useEffect, useId, useState } from 'react';
 import { useStudioContext } from '../context/StudioContext';
 import type { SceneDetail, StoryBeat, TransitionType } from '../types';
 import {
   ChevronDownIcon,
+  ChevronLeftIcon,
+  ChevronRightIcon,
   ChevronUpIcon,
   CopyIcon,
   PlusIcon,
@@ -42,6 +44,40 @@ export function StoryScenesWorkspace() {
   const transDurId = useId();
   const loglineId = useId();
   const artStyleId = useId();
+  const bgAssetId = useId();
+
+  const scenes = draftProject?.scenes ?? [];
+  const activeScene = scenes.find((s) => s.id === selectedSceneId) ?? scenes[0] ?? null;
+  const activeIndex = activeScene ? scenes.findIndex((s) => s.id === activeScene.id) : -1;
+
+  // Direct Scene-to-Scene Navigation keyboard shortcuts: [ and ] or Alt+ArrowLeft / Alt+ArrowRight
+  useEffect(() => {
+    const handleKeyDown = (ev: KeyboardEvent) => {
+      const target = ev.target as HTMLElement | null;
+      if (
+        target &&
+        (target.tagName === 'INPUT' ||
+          target.tagName === 'TEXTAREA' ||
+          target.tagName === 'SELECT' ||
+          target.isContentEditable)
+      ) {
+        return;
+      }
+      if (ev.key === '[' || (ev.altKey && ev.key === 'ArrowLeft')) {
+        if (activeIndex > 0) {
+          ev.preventDefault();
+          setSelectedSceneId(scenes[activeIndex - 1].id);
+        }
+      } else if (ev.key === ']' || (ev.altKey && ev.key === 'ArrowRight')) {
+        if (activeIndex >= 0 && activeIndex < scenes.length - 1) {
+          ev.preventDefault();
+          setSelectedSceneId(scenes[activeIndex + 1].id);
+        }
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [activeIndex, scenes, setSelectedSceneId]);
 
   if (!draftProject) {
     return (
@@ -64,8 +100,17 @@ export function StoryScenesWorkspace() {
     );
   }
 
-  const scenes = draftProject.scenes;
-  const activeScene = scenes.find((s) => s.id === selectedSceneId) ?? scenes[0] ?? null;
+  const handlePrevScene = () => {
+    if (activeIndex > 0) {
+      setSelectedSceneId(scenes[activeIndex - 1].id);
+    }
+  };
+
+  const handleNextScene = () => {
+    if (activeIndex >= 0 && activeIndex < scenes.length - 1) {
+      setSelectedSceneId(scenes[activeIndex + 1].id);
+    }
+  };
 
   const handleAddScene = () => {
     const nextIdx = scenes.length;
@@ -198,6 +243,57 @@ export function StoryScenesWorkspace() {
     setSelectedSceneId(newId);
   };
 
+  const handleAddBeat = () => {
+    updateDraft((prev) => {
+      const currentBeats = prev.storyboard?.beats ?? [];
+      const nextBeatNumber = currentBeats.length + 1;
+      const newBeat: StoryBeat = {
+        beatNumber: nextBeatNumber,
+        sceneTitle: `Beat ${nextBeatNumber}`,
+        visualSummary: `Visual summary for beat ${nextBeatNumber}`,
+        characterInteractions: '',
+        cameraNotes: 'Medium shot, eye level',
+        soundNotes: '',
+        targetDurationSeconds: 3,
+      };
+      const nextBeats = [...currentBeats, newBeat];
+      const totalDurationSeconds = Number(
+        nextBeats.reduce((sum, b) => sum + Math.max(0.5, Number(b.targetDurationSeconds) || 0), 0).toFixed(2)
+      );
+      return {
+        ...prev,
+        storyboard: {
+          id: prev.storyboard?.id ?? `sb_${Date.now()}`,
+          projectId: prev.id,
+          logline: prev.storyboard?.logline ?? prev.prompt ?? 'Story logline...',
+          artStyle: prev.storyboard?.artStyle ?? '2D Stylized Animation',
+          beats: nextBeats,
+          totalDurationSeconds,
+          createdAt: prev.storyboard?.createdAt ?? new Date().toISOString(),
+        },
+      };
+    });
+  };
+
+  const handleDeleteBeat = (beatNumber: number) => {
+    updateDraft((prev) => {
+      if (!prev.storyboard) return prev;
+      const filtered = prev.storyboard.beats.filter((b) => b.beatNumber !== beatNumber);
+      const reindexed = filtered.map((b, idx) => ({ ...b, beatNumber: idx + 1 }));
+      const totalDurationSeconds = Number(
+        reindexed.reduce((sum, b) => sum + Math.max(0.5, Number(b.targetDurationSeconds) || 0), 0).toFixed(2)
+      );
+      return {
+        ...prev,
+        storyboard: {
+          ...prev.storyboard,
+          beats: reindexed,
+          totalDurationSeconds,
+        },
+      };
+    });
+  };
+
   const updateBeat = (beatNumber: number, patch: Partial<StoryBeat>) => {
     updateDraft((prev) => {
       if (!prev.storyboard) return prev;
@@ -219,6 +315,8 @@ export function StoryScenesWorkspace() {
   };
 
   const storyboard = draftProject.storyboard;
+  const bgAssets = draftProject.assets.filter((a) => a.type === 'background');
+  const otherAssets = draftProject.assets.filter((a) => a.type !== 'background');
 
   return (
     <div className="page-container">
@@ -264,6 +362,14 @@ export function StoryScenesWorkspace() {
             <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
               <StatusBadge tone="neutral">{storyboard.artStyle}</StatusBadge>
               <StatusBadge tone="pass">{storyboard.totalDurationSeconds}s</StatusBadge>
+              <button
+                type="button"
+                onClick={handleAddBeat}
+                style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}
+              >
+                <PlusIcon size={13} />
+                <span>Add Beat</span>
+              </button>
               <button
                 type="button"
                 disabled={busy.saving || busy.rendering}
@@ -353,8 +459,11 @@ export function StoryScenesWorkspace() {
               <ol
                 style={{
                   display: 'grid',
-                  gridTemplateColumns: 'repeat(auto-fill, minmax(240px, 1fr))',
-                  gap: 8,
+                  gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))',
+                  gap: 10,
+                  listStyle: 'none',
+                  padding: 0,
+                  margin: 0,
                 }}
               >
                 {storyboard.beats.map((beat) => (
@@ -366,15 +475,28 @@ export function StoryScenesWorkspace() {
                       padding: 10,
                       display: 'flex',
                       flexDirection: 'column',
-                      gap: 6,
+                      gap: 8,
                     }}
                   >
-                    <div style={{ display: 'flex', justifyContent: 'space-between', gap: 6 }}>
-                      <strong>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 6 }}>
+                      <strong style={{ fontSize: 'var(--text-sm)' }}>
                         Beat {beat.beatNumber}: {beat.sceneTitle}
                       </strong>
-                      <span className="mono field-hint">{beat.targetDurationSeconds}s</span>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                        <span className="mono field-hint">{beat.targetDurationSeconds}s</span>
+                        <button
+                          type="button"
+                          className="btn-ghost"
+                          aria-label={`Delete Beat ${beat.beatNumber}`}
+                          onClick={() => handleDeleteBeat(beat.beatNumber)}
+                          style={{ padding: '2px 4px', color: 'var(--text-danger, #ef4444)' }}
+                          title={`Delete Beat ${beat.beatNumber}`}
+                        >
+                          <TrashIcon size={12} />
+                        </button>
+                      </div>
                     </div>
+
                     <div className="field">
                       <label htmlFor={`beat-title-${beat.beatNumber}`}>
                         Beat {beat.beatNumber} Title
@@ -388,6 +510,7 @@ export function StoryScenesWorkspace() {
                         }
                       />
                     </div>
+
                     <div className="field">
                       <label htmlFor={`beat-summary-${beat.beatNumber}`}>
                         Beat {beat.beatNumber} Summary
@@ -401,6 +524,53 @@ export function StoryScenesWorkspace() {
                         }
                       />
                     </div>
+
+                    <div className="field">
+                      <label htmlFor={`beat-char-int-${beat.beatNumber}`}>
+                        Beat {beat.beatNumber} Interactions
+                      </label>
+                      <input
+                        id={`beat-char-int-${beat.beatNumber}`}
+                        type="text"
+                        placeholder="Dialogue or physical interaction notes..."
+                        value={beat.characterInteractions || ''}
+                        onChange={(ev) =>
+                          updateBeat(beat.beatNumber, { characterInteractions: ev.target.value })
+                        }
+                      />
+                    </div>
+
+                    <div className="dialog-two-col">
+                      <div className="field">
+                        <label htmlFor={`beat-camera-${beat.beatNumber}`}>
+                          Beat {beat.beatNumber} Camera Notes
+                        </label>
+                        <input
+                          id={`beat-camera-${beat.beatNumber}`}
+                          type="text"
+                          placeholder="e.g. Pan left, Zoom in..."
+                          value={beat.cameraNotes || ''}
+                          onChange={(ev) =>
+                            updateBeat(beat.beatNumber, { cameraNotes: ev.target.value })
+                          }
+                        />
+                      </div>
+                      <div className="field">
+                        <label htmlFor={`beat-sound-${beat.beatNumber}`}>
+                          Beat {beat.beatNumber} Sound Notes
+                        </label>
+                        <input
+                          id={`beat-sound-${beat.beatNumber}`}
+                          type="text"
+                          placeholder="Score, Foley, SFX..."
+                          value={beat.soundNotes || ''}
+                          onChange={(ev) =>
+                            updateBeat(beat.beatNumber, { soundNotes: ev.target.value })
+                          }
+                        />
+                      </div>
+                    </div>
+
                     <div className="field">
                       <label htmlFor={`beat-dur-${beat.beatNumber}`}>
                         Beat {beat.beatNumber} Duration (s)
@@ -415,13 +585,11 @@ export function StoryScenesWorkspace() {
                         }
                       />
                     </div>
-                    {beat.cameraNotes ? (
-                      <p className="mono field-hint">Cam: {beat.cameraNotes}</p>
-                    ) : null}
+
                     <button
                       type="button"
                       onClick={() => handleCreateSceneFromBeat(beat)}
-                      style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}
+                      style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 4, marginTop: 4 }}
                     >
                       <PlusIcon size={12} />
                       <span>Create Scene from Beat {beat.beatNumber}</span>
@@ -436,28 +604,46 @@ export function StoryScenesWorkspace() {
         <section className="panel" aria-label="Deterministic planning tools">
           <div className="page-header-row">
             <span className="field-hint">
-              No storyboard generated yet. Create a deterministic starter storyboard template.
+              No storyboard generated yet. Add a story beat or generate a deterministic starter template.
             </span>
-            <button
-              type="button"
-              disabled={busy.saving || busy.rendering}
-              onClick={() => void runDeterministicAgent(draftProject.id, 'story_director')}
-            >
-              Regenerate Storyboard (Deterministic)
-            </button>
+            <div style={{ display: 'flex', gap: 6 }}>
+              <button
+                type="button"
+                onClick={handleAddBeat}
+                style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}
+              >
+                <PlusIcon size={13} />
+                <span>+ Add Beat</span>
+              </button>
+              <button
+                type="button"
+                disabled={busy.saving || busy.rendering}
+                onClick={() => void runDeterministicAgent(draftProject.id, 'story_director')}
+              >
+                Regenerate Storyboard (Deterministic)
+              </button>
+            </div>
           </div>
         </section>
       )}
 
       <div className="split-layout">
         <section className="panel" aria-labelledby="scenes-sequence-heading">
-          <h3 id="scenes-sequence-heading" style={{ marginBottom: 10 }}>
-            Scene Sequence
-          </h3>
+          <div className="page-header-row" style={{ marginBottom: 10 }}>
+            <h3 id="scenes-sequence-heading">Scene Sequence</h3>
+            <button
+              type="button"
+              onClick={handleAddScene}
+              style={{ display: 'inline-flex', alignItems: 'center', gap: 4, padding: '3px 8px' }}
+            >
+              <PlusIcon size={12} />
+              <span>Add Scene</span>
+            </button>
+          </div>
           {scenes.length === 0 ? (
             <p className="field-hint">No scenes yet. Click + Add Scene to start.</p>
           ) : (
-            <ul role="list" style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+            <ul role="list" style={{ display: 'flex', flexDirection: 'column', gap: 8, padding: 0, margin: 0 }}>
               {scenes.map((scene, idx) => {
                 const selected = activeScene?.id === scene.id;
                 return (
@@ -544,7 +730,34 @@ export function StoryScenesWorkspace() {
           <div className="page-header-row" style={{ marginBottom: 10 }}>
             <h3 id="scene-detail-heading">Scene Detail Editor</h3>
             {activeScene ? (
-              <div style={{ display: 'flex', gap: 6 }}>
+              <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                  <button
+                    type="button"
+                    aria-label="Previous scene"
+                    disabled={activeIndex <= 0}
+                    onClick={handlePrevScene}
+                    title="Previous Scene (Shortcut: [ or Alt+Left)"
+                    style={{ display: 'inline-flex', alignItems: 'center', gap: 2, padding: '3px 7px' }}
+                  >
+                    <ChevronLeftIcon size={12} />
+                    <span>Prev</span>
+                  </button>
+                  <span className="mono field-hint" style={{ fontSize: 'var(--text-xs)' }}>
+                    {activeIndex >= 0 ? `${activeIndex + 1}/${scenes.length}` : '—'}
+                  </span>
+                  <button
+                    type="button"
+                    aria-label="Next scene"
+                    disabled={activeIndex < 0 || activeIndex >= scenes.length - 1}
+                    onClick={handleNextScene}
+                    title="Next Scene (Shortcut: ] or Alt+Right)"
+                    style={{ display: 'inline-flex', alignItems: 'center', gap: 2, padding: '3px 7px' }}
+                  >
+                    <span>Next</span>
+                    <ChevronRightIcon size={12} />
+                  </button>
+                </div>
                 <button
                   type="button"
                   aria-label="Duplicate selected scene"
@@ -648,6 +861,106 @@ export function StoryScenesWorkspace() {
                     })
                   }
                 />
+              </div>
+
+              {/* Scene Background Asset Selector */}
+              <div className="field">
+                <label htmlFor={bgAssetId}>Scene Background Asset</label>
+                <select
+                  id={bgAssetId}
+                  value={activeScene.backgroundAssetId ?? ''}
+                  onChange={(ev) =>
+                    updateActiveScene({
+                      backgroundAssetId: ev.target.value || undefined,
+                    })
+                  }
+                >
+                  <option value="">None (Transparent / Canvas Default)</option>
+                  {bgAssets.length > 0 ? (
+                    <optgroup label="Background Assets">
+                      {bgAssets.map((asset) => (
+                        <option key={asset.id} value={asset.id}>
+                          {asset.name}
+                        </option>
+                      ))}
+                    </optgroup>
+                  ) : null}
+                  {otherAssets.length > 0 ? (
+                    <optgroup label="Other Project Assets">
+                      {otherAssets.map((asset) => (
+                        <option key={asset.id} value={asset.id}>
+                          {asset.name} ({asset.type})
+                        </option>
+                      ))}
+                    </optgroup>
+                  ) : null}
+                </select>
+                {activeScene.backgroundAssetId ? (
+                  <span className="field-hint" style={{ marginTop: 2, display: 'block' }}>
+                    Linked Asset:{' '}
+                    {draftProject.assets.find((a) => a.id === activeScene.backgroundAssetId)?.name ??
+                      activeScene.backgroundAssetId}
+                  </span>
+                ) : null}
+              </div>
+
+              {/* Characters Assignment to Scene */}
+              <div className="field">
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 4 }}>
+                  <span style={{ fontSize: 'var(--text-sm)', fontWeight: 600 }}>Cast in Scene</span>
+                  <span className="mono field-hint">
+                    {activeScene.characterIds.length} of {draftProject.characters.length} assigned
+                  </span>
+                </div>
+                {draftProject.characters.length === 0 ? (
+                  <p className="field-hint">
+                    No characters created in cast yet.{' '}
+                    <button
+                      type="button"
+                      className="btn-ghost"
+                      onClick={() => navigate('characters')}
+                      style={{ padding: '0 4px', textDecoration: 'underline' }}
+                    >
+                      Open Character Studio
+                    </button>
+                  </p>
+                ) : (
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, padding: '4px 0' }}>
+                    {draftProject.characters.map((char) => {
+                      const isAssigned = activeScene.characterIds.includes(char.id);
+                      return (
+                        <label
+                          key={char.id}
+                          style={{
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            gap: 6,
+                            padding: '4px 8px',
+                            borderRadius: 'var(--radius-sm)',
+                            background: isAssigned ? 'var(--accent-amber-soft)' : 'var(--bg-surface-elevated)',
+                            border: `1px solid ${isAssigned ? 'var(--accent-amber)' : 'var(--border-subtle)'}`,
+                            cursor: 'pointer',
+                            fontSize: 'var(--text-sm)',
+                            fontWeight: isAssigned ? 600 : 400,
+                          }}
+                        >
+                          <input
+                            type="checkbox"
+                            aria-label={`Assign ${char.name} to scene`}
+                            checked={isAssigned}
+                            onChange={(ev) => {
+                              const nextIds = ev.target.checked
+                                ? [...activeScene.characterIds, char.id]
+                                : activeScene.characterIds.filter((id) => id !== char.id);
+                              updateActiveScene({ characterIds: nextIds });
+                            }}
+                          />
+                          <span>{char.name}</span>
+                        </label>
+                      );
+                    })}
+                  </div>
+                )}
               </div>
 
               <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', paddingTop: 4 }}>

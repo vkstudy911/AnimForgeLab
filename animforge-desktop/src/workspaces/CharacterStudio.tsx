@@ -1,22 +1,38 @@
 import { useEffect, useId, useMemo, useRef, useState } from 'react';
 import {
   CharactersIcon,
+  CopyIcon,
   LayersIcon,
   PlayIcon,
   PlusIcon,
   SaveIcon,
+  SearchIcon,
+  TrashIcon,
 } from '../components/ui/Icons';
+import { StudioDialog } from '../components/ui/StudioDialog';
 import { useStudioContext } from '../context/StudioContext';
 import type { CharacterActionName, CharacterItem, CharacterPart } from '../types';
 
-const QUICK_ACTIONS: Array<{ name: CharacterActionName; label: string }> = [
-  { name: 'idle', label: 'Idle' },
-  { name: 'walk', label: 'Walk' },
-  { name: 'run', label: 'Run' },
-  { name: 'wave', label: 'Wave' },
-  { name: 'smile', label: 'Smile' },
-  { name: 'blink', label: 'Blink' },
-  { name: 'look_around', label: 'Look Around' },
+interface PresetItem {
+  name: string;
+  actionName: CharacterActionName;
+  type: 'expression' | 'pose';
+  params: Record<string, unknown>;
+}
+
+const EXPRESSION_PRESETS: PresetItem[] = [
+  { name: 'Happy', actionName: 'smile', type: 'expression', params: { expression: 'happy', mood: 'happy' } },
+  { name: 'Neutral', actionName: 'idle', type: 'expression', params: { expression: 'neutral', mood: 'neutral' } },
+  { name: 'Surprised', actionName: 'custom', type: 'expression', params: { expression: 'surprised', mood: 'surprised' } },
+  { name: 'Sad', actionName: 'custom', type: 'expression', params: { expression: 'sad', mood: 'sad' } },
+  { name: 'Focused', actionName: 'look_around', type: 'expression', params: { expression: 'focused', mood: 'focused' } },
+];
+
+const POSE_PRESETS: PresetItem[] = [
+  { name: 'Stand', actionName: 'idle', type: 'pose', params: { pose: 'stand' } },
+  { name: 'Walk', actionName: 'walk', type: 'pose', params: { pose: 'walk' } },
+  { name: 'Run', actionName: 'run', type: 'pose', params: { pose: 'run' } },
+  { name: 'Wave', actionName: 'wave', type: 'pose', params: { pose: 'wave' } },
 ];
 
 function makeId(prefix: string): string {
@@ -98,7 +114,7 @@ function parseImportedCharacter(raw: unknown): CharacterItem {
     });
 
   const palette = Array.isArray(obj.colorPalette)
-    ? obj.colorPalette.filter((c): c is string => typeof c === 'string')
+    ? obj.colorPalette.filter((c): c is string => typeof c === 'string' && c.trim().length > 0)
     : ['#f59e0b'];
 
   return {
@@ -139,6 +155,8 @@ export function CharacterStudio() {
 
   const [selectedCharId, setSelectedCharId] = useState<string | null>(null);
   const [selectedPartId, setSelectedPartId] = useState<string | null>(null);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [charToDelete, setCharToDelete] = useState<CharacterItem | null>(null);
   const [dragPivot, setDragPivot] = useState<{
     charId: string;
     partId: string;
@@ -160,6 +178,16 @@ export function CharacterStudio() {
 
   const characters = draftProject?.characters ?? [];
 
+  const filteredCharacters = useMemo(() => {
+    const q = searchQuery.trim().toLowerCase();
+    if (!q) return characters;
+    return characters.filter(
+      (c) =>
+        c.name.toLowerCase().includes(q) ||
+        (c.description && c.description.toLowerCase().includes(q))
+    );
+  }, [characters, searchQuery]);
+
   useEffect(() => {
     if (characters.length === 0) {
       setSelectedCharId(null);
@@ -179,7 +207,7 @@ export function CharacterStudio() {
   }, [characters, selectedCharId, selectedPartId]);
 
   const selectedChar = useMemo(
-    () => characters.find((c) => c.id === selectedCharId) ?? null,
+    () => characters.find((c) => c.id === selectedCharId) ?? characters[0] ?? null,
     [characters, selectedCharId]
   );
 
@@ -189,7 +217,10 @@ export function CharacterStudio() {
   }, [selectedChar]);
 
   const selectedPart = useMemo(
-    () => selectedChar?.parts.find((p) => p.id === selectedPartId) ?? null,
+    () =>
+      selectedChar?.parts.find((p) => p.id === selectedPartId) ??
+      selectedChar?.parts[0] ??
+      null,
     [selectedChar, selectedPartId]
   );
 
@@ -258,7 +289,16 @@ export function CharacterStudio() {
     updateDraft((prev) => ({
       ...prev,
       characters: prev.characters.filter((c) => c.id !== charId),
+      scenes: prev.scenes.map((sc) => ({
+        ...sc,
+        characterIds: sc.characterIds.filter((id) => id !== charId),
+      })),
     }));
+    if (selectedCharId === charId) {
+      const remaining = characters.filter((c) => c.id !== charId);
+      setSelectedCharId(remaining[0]?.id ?? null);
+      setSelectedPartId(remaining[0]?.parts[0]?.id ?? null);
+    }
   };
 
   const handleDuplicateCharacter = (char: CharacterItem) => {
@@ -373,8 +413,19 @@ export function CharacterStudio() {
     }));
   };
 
-  const handleQuickAction = (actionName: CharacterActionName) => {
-    if (!selectedChar || !activeScene) return;
+  const handleApplyPreset = (preset: PresetItem) => {
+    if (!selectedChar) return;
+    if (!activeScene) {
+      // If no active scene, still record parameter on character profile
+      updateCharacter(selectedChar.id, (c) => ({
+        ...c,
+        description: c.description
+          ? `${c.description.replace(/\[Default.*\]/, '').trim()} [Default ${preset.type}: ${preset.name}]`
+          : `[Default ${preset.type}: ${preset.name}]`,
+      }));
+      return;
+    }
+
     const actionId = makeId('act');
     const startTime = Number.isFinite(playheadTime)
       ? Math.max(0, Math.min(activeScene.duration, Number(playheadTime.toFixed(2))))
@@ -383,6 +434,16 @@ export function CharacterStudio() {
 
     updateDraft((prev) => ({
       ...prev,
+      characters: prev.characters.map((c) =>
+        c.id === selectedChar.id
+          ? {
+              ...c,
+              description: c.description
+                ? `${c.description.replace(/\[Default.*\]/, '').trim()} [Default ${preset.type}: ${preset.name}]`
+                : `[Default ${preset.type}: ${preset.name}]`,
+            }
+          : c
+      ),
       scenes: prev.scenes.map((scene) =>
         scene.id === activeScene.id
           ? {
@@ -396,12 +457,15 @@ export function CharacterStudio() {
                   ...scene.timeline.characterActions,
                   {
                     actionId,
-                    name: actionName,
+                    name: preset.actionName,
                     startTime,
                     duration,
                     parameters: {
                       characterId: selectedChar.id,
                       characterName: selectedChar.name,
+                      presetType: preset.type,
+                      presetName: preset.name,
+                      ...preset.params,
                     },
                   },
                 ],
@@ -484,23 +548,48 @@ export function CharacterStudio() {
           alignItems: 'start',
         }}
       >
-        {/* Character List */}
+        {/* Left Column: Cast Roster with Search */}
         <div className="panel" style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
             <h3 style={{ fontSize: 'var(--text-sm)', fontWeight: 600 }}>Cast Roster</h3>
             <span className="field-hint">{draftProject.name}</span>
           </div>
 
-          {characters.length === 0 ? (
+          <div className="field" style={{ marginBottom: 2 }}>
+            <input
+              type="text"
+              aria-label="Search cast"
+              placeholder="Search cast..."
+              value={searchQuery}
+              onChange={(ev) => setSearchQuery(ev.target.value)}
+              style={{ width: '100%', fontSize: 'var(--text-xs)' }}
+            />
+          </div>
+
+          {filteredCharacters.length === 0 ? (
             <p className="field-hint">
-              No characters defined yet. Click <strong>Add Character</strong> to start rigging.
+              {searchQuery ? (
+                <>
+                  No matches for &ldquo;{searchQuery}&rdquo;.{' '}
+                  <button
+                    type="button"
+                    className="btn-ghost"
+                    onClick={() => setSearchQuery('')}
+                    style={{ padding: '0 2px', textDecoration: 'underline' }}
+                  >
+                    Clear
+                  </button>
+                </>
+              ) : (
+                'No characters defined yet. Click Add Character to start rigging.'
+              )}
             </p>
           ) : (
-            <ul role="list" style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-              {characters.map((char) => {
+            <ul role="list" style={{ display: 'flex', flexDirection: 'column', gap: 6, padding: 0, margin: 0 }}>
+              {filteredCharacters.map((char) => {
                 const isSelected = char.id === selectedChar?.id;
                 return (
-                  <li key={char.id}>
+                  <li key={char.id} style={{ listStyle: 'none' }}>
                     <button
                       type="button"
                       aria-pressed={isSelected}
@@ -534,7 +623,7 @@ export function CharacterStudio() {
           )}
         </div>
 
-        {/* Center: Metadata + SVG Rig Schematic + Quick Actions */}
+        {/* Center: Metadata + SVG Rig Schematic + Expressions & Poses + Scene Assignment */}
         <div style={{ display: 'flex', flexDirection: 'column', gap: 14, minWidth: 0 }}>
           {!selectedChar ? (
             <div className="panel">
@@ -542,6 +631,7 @@ export function CharacterStudio() {
             </div>
           ) : (
             <>
+              {/* Profile Card */}
               <div className="panel" style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, flexWrap: 'wrap' }}>
                   <h3 style={{ fontSize: 'var(--text-md)', fontWeight: 600 }}>Character Profile</h3>
@@ -561,7 +651,7 @@ export function CharacterStudio() {
                     <button
                       type="button"
                       className="btn-danger"
-                      onClick={() => handleDeleteCharacter(selectedChar.id)}
+                      onClick={() => setCharToDelete(selectedChar)}
                     >
                       Remove Character
                     </button>
@@ -930,13 +1020,13 @@ export function CharacterStudio() {
                 </div>
               </div>
 
-              {/* Quick Animation Actions */}
+              {/* Expressions & Poses Presets Card */}
               <div className="panel" style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, flexWrap: 'wrap' }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                    <PlayIcon size={13} />
+                    <PlayIcon size={14} />
                     <h3 style={{ fontSize: 'var(--text-md)', fontWeight: 600 }}>
-                      Quick Animation Actions
+                      Expressions &amp; Poses Presets
                     </h3>
                   </div>
 
@@ -961,21 +1051,113 @@ export function CharacterStudio() {
                   ) : null}
                 </div>
 
-                {!activeScene ? (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                  <div>
+                    <span className="field-hint" style={{ fontSize: 'var(--text-xs)', fontWeight: 600, display: 'block', marginBottom: 4 }}>
+                      Expressions
+                    </span>
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                      {EXPRESSION_PRESETS.map((preset) => (
+                        <button
+                          key={preset.name}
+                          type="button"
+                          onClick={() => handleApplyPreset(preset)}
+                          title={`Apply ${preset.name} expression to timeline`}
+                        >
+                          + {preset.name}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div>
+                    <span className="field-hint" style={{ fontSize: 'var(--text-xs)', fontWeight: 600, display: 'block', marginBottom: 4 }}>
+                      Poses &amp; Actions
+                    </span>
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                      {POSE_PRESETS.map((preset) => (
+                        <button
+                          key={preset.name}
+                          type="button"
+                          onClick={() => handleApplyPreset(preset)}
+                          title={`Apply ${preset.name} pose action to timeline`}
+                        >
+                          + {preset.name}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Character Scene Assignment Card */}
+              <div className="panel" style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                  <h3 style={{ fontSize: 'var(--text-md)', fontWeight: 600 }}>Scene Appearances</h3>
+                  <span className="mono field-hint">
+                    {scenes.filter((sc) => sc.characterIds.includes(selectedChar.id)).length} of {scenes.length} scenes
+                  </span>
+                </div>
+
+                {scenes.length === 0 ? (
                   <p className="field-hint">
-                    Add a scene in Story &amp; Scenes first to attach quick character actions.
+                    No scenes created in this project yet. Add scenes in{' '}
+                    <button
+                      type="button"
+                      className="btn-ghost"
+                      onClick={() => navigate('story')}
+                      style={{ padding: '0 4px', textDecoration: 'underline' }}
+                    >
+                      Story &amp; Scenes
+                    </button>.
                   </p>
                 ) : (
-                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
-                    {QUICK_ACTIONS.map((action) => (
-                      <button
-                        key={action.name}
-                        type="button"
-                        onClick={() => handleQuickAction(action.name)}
-                      >
-                        + {action.label}
-                      </button>
-                    ))}
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                    {scenes.map((scene, idx) => {
+                      const appears = scene.characterIds.includes(selectedChar.id);
+                      return (
+                        <label
+                          key={scene.id}
+                          style={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'space-between',
+                            gap: 8,
+                            padding: '6px 10px',
+                            background: appears ? 'var(--accent-amber-soft)' : 'var(--bg-surface-elevated)',
+                            border: `1px solid ${appears ? 'var(--accent-amber)' : 'var(--border-subtle)'}`,
+                            borderRadius: 'var(--radius-sm)',
+                            cursor: 'pointer',
+                            fontSize: 'var(--text-sm)',
+                          }}
+                        >
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                            <input
+                              type="checkbox"
+                              aria-label={`Toggle ${selectedChar.name} in Scene ${idx + 1}`}
+                              checked={appears}
+                              onChange={(ev) => {
+                                const isChecked = ev.target.checked;
+                                updateDraft((prev) => ({
+                                  ...prev,
+                                  scenes: prev.scenes.map((sc) => {
+                                    if (sc.id !== scene.id) return sc;
+                                    const nextIds = isChecked
+                                      ? (sc.characterIds.includes(selectedChar.id)
+                                          ? sc.characterIds
+                                          : [...sc.characterIds, selectedChar.id])
+                                      : sc.characterIds.filter((id) => id !== selectedChar.id);
+                                    return { ...sc, characterIds: nextIds };
+                                  }),
+                                }));
+                              }}
+                            />
+                            <strong>Scene {idx + 1}: {scene.title}</strong>
+                          </div>
+                          <span className="mono field-hint">{scene.duration}s</span>
+                        </label>
+                      );
+                    })}
                   </div>
                 )}
               </div>
@@ -999,11 +1181,11 @@ export function CharacterStudio() {
             <p className="field-hint">No rig parts yet. Click Add Part.</p>
           ) : (
             <>
-              <ul role="list" style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+              <ul role="list" style={{ display: 'flex', flexDirection: 'column', gap: 6, padding: 0, margin: 0 }}>
                 {sortedParts.map((part) => {
                   const active = part.id === selectedPart?.id;
                   return (
-                    <li key={part.id}>
+                    <li key={part.id} style={{ listStyle: 'none' }}>
                       <button
                         type="button"
                         aria-pressed={active}
@@ -1149,6 +1331,37 @@ export function CharacterStudio() {
           )}
         </div>
       </div>
+
+      {/* Delete Confirmation Dialog */}
+      <StudioDialog
+        open={Boolean(charToDelete)}
+        title={`Delete ${charToDelete?.name ?? 'Character'}`}
+        onClose={() => setCharToDelete(null)}
+      >
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+          <p>
+            Are you sure you want to delete character <strong>&ldquo;{charToDelete?.name}&rdquo;</strong>?
+            This will remove the character from the cast roster and unassign them from all scenes.
+          </p>
+          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 8 }}>
+            <button type="button" onClick={() => setCharToDelete(null)}>
+              Cancel
+            </button>
+            <button
+              type="button"
+              className="btn-danger"
+              onClick={() => {
+                if (charToDelete) {
+                  handleDeleteCharacter(charToDelete.id);
+                  setCharToDelete(null);
+                }
+              }}
+            >
+              Confirm Delete
+            </button>
+          </div>
+        </div>
+      </StudioDialog>
     </section>
   );
 }

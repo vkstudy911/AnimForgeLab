@@ -1,5 +1,5 @@
 import type React from 'react';
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { PreviewStage } from '../components/PreviewStage';
 import { CueInspector } from '../components/timeline/CueInspector';
 import { MultiTrackTimeline } from '../components/timeline/MultiTrackTimeline';
@@ -35,6 +35,7 @@ export function AnimationEditor() {
     navigate,
   } = useStudioContext();
 
+  const [selectedKeyframeId, setSelectedKeyframeId] = useState<string | null>(null);
   const cleanupDragRef = useRef<(() => void) | null>(null);
 
   useEffect(() => {
@@ -271,7 +272,12 @@ export function AnimationEditor() {
             ) : null}
           </div>
 
-          {!layoutPrefs.rightCollapsed ? <CueInspector /> : null}
+          {!layoutPrefs.rightCollapsed ? (
+            <CueInspector
+              selectedKeyframeId={selectedKeyframeId}
+              onSelectKeyframe={setSelectedKeyframeId}
+            />
+          ) : null}
         </aside>
       </div>
 
@@ -315,6 +321,8 @@ export function AnimationEditor() {
         onToggleCollapse={() =>
           updateLayoutPrefs({ timelineCollapsed: !layoutPrefs.timelineCollapsed })
         }
+        selectedKeyframeId={selectedKeyframeId}
+        onSelectKeyframe={setSelectedKeyframeId}
       />
     </div>
   );

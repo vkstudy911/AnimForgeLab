@@ -1,8 +1,11 @@
-import { useId } from 'react';
+import { useEffect, useId, useState } from 'react';
+import { invoke } from '@tauri-apps/api/core';
 import { MoonIcon, SettingsIcon, SunIcon } from '../components/ui/Icons';
 import { StatusBadge } from '../components/ui/StatusBadge';
+import { StudioButton } from '../components/ui/StudioButton';
+import { StudioNotification } from '../components/ui/StudioNotification';
 import { useStudioContext } from '../context/StudioContext';
-import type { EngineId, ThemePreference } from '../types';
+import type { ConfigResult, EngineId, StudioDiskConfig, ThemePreference } from '../types';
 
 const THEME_OPTIONS: Array<{
   value: ThemePreference;
@@ -72,6 +75,35 @@ const ENGINE_OPTIONS: Array<{
   },
 ];
 
+export interface ExportDefaultsPrefs {
+  outputFormat: 'mp4' | 'webm' | 'gif' | 'png_sequence';
+  quality: 'high' | 'medium' | 'draft';
+  exportFolder: string;
+}
+
+const DEFAULT_EXPORT_PREFS: ExportDefaultsPrefs = {
+  outputFormat: 'mp4',
+  quality: 'high',
+  exportFolder: 'exports',
+};
+
+const EXPORT_STORAGE_KEY = 'animforge:export_defaults';
+
+function readExportPrefs(): ExportDefaultsPrefs {
+  try {
+    const raw = localStorage.getItem(EXPORT_STORAGE_KEY);
+    if (!raw) return DEFAULT_EXPORT_PREFS;
+    const parsed = JSON.parse(raw) as Partial<ExportDefaultsPrefs>;
+    return {
+      outputFormat: parsed.outputFormat ?? DEFAULT_EXPORT_PREFS.outputFormat,
+      quality: parsed.quality ?? DEFAULT_EXPORT_PREFS.quality,
+      exportFolder: parsed.exportFolder ?? DEFAULT_EXPORT_PREFS.exportFolder,
+    };
+  } catch {
+    return DEFAULT_EXPORT_PREFS;
+  }
+}
+
 const SHORTCUTS: Array<{ keys: string; action: string }> = [
   { keys: 'Space', action: 'Play / Pause stage preview (when outside text inputs)' },
   { keys: 'ArrowLeft / ArrowRight', action: 'Step playhead backward or forward by 1 frame' },
@@ -95,12 +127,116 @@ export function SettingsWorkspace() {
     resetSettingsDefaults,
   } = useStudioContext();
 
+  const [notification, setNotification] = useState<{
+    type: 'success' | 'info' | 'warning' | 'error';
+    title: string;
+    message: string;
+  } | null>(null);
+
+  const [exportPrefs, setExportPrefs] = useState<ExportDefaultsPrefs>(readExportPrefs);
+  const [diskConfig, setDiskConfig] = useState<ConfigResult | null>(null);
+  const [diskSaving, setDiskSaving] = useState(false);
+
   const headingId = useId();
   const reducedMotionId = useId();
   const safeZonesId = useId();
+  const exportFolderId = useId();
+
+  // Load disk config status on mount
+  useEffect(() => {
+    let cancelled = false;
+    async function loadDiskConfig() {
+      try {
+        const res = await invoke<ConfigResult>('config_get');
+        if (!cancelled && res && typeof res === 'object') {
+          setDiskConfig(res);
+        }
+      } catch {
+        // Fallback when config_get is not mocked or unavailable
+      }
+    }
+    void loadDiskConfig();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const handleUpdateExportPrefs = (patch: Partial<ExportDefaultsPrefs>) => {
+    const next = { ...exportPrefs, ...patch };
+    setExportPrefs(next);
+    try {
+      localStorage.setItem(EXPORT_STORAGE_KEY, JSON.stringify(next));
+    } catch {
+      // Ignore local storage error
+    }
+    setNotification({
+      type: 'success',
+      title: 'Settings Saved',
+      message: 'Export defaults updated successfully.',
+    });
+  };
+
+  const handleSaveToDisk = async () => {
+    setDiskSaving(true);
+    try {
+      const configPayload: StudioDiskConfig = {
+        defaultWidth: settingsPrefs.defaultWidth,
+        defaultHeight: settingsPrefs.defaultHeight,
+        defaultFps: settingsPrefs.defaultFps,
+        defaultEngine: settingsPrefs.defaultEngine,
+        density: settingsPrefs.density,
+        reducedEffects: settingsPrefs.reducedEffects,
+        showSafeZonesByDefault: settingsPrefs.showSafeZonesByDefault,
+      };
+      const res = await invoke<ConfigResult>('config_save', { config: configPayload });
+      if (res) {
+        setDiskConfig(res);
+      }
+      setNotification({
+        type: 'success',
+        title: 'Settings Saved',
+        message: `Studio configuration persisted to ${res?.configPath ?? 'animforge.config.json'}.`,
+      });
+    } catch (err: unknown) {
+      setNotification({
+        type: 'error',
+        title: 'Save Failed',
+        message: err instanceof Error ? err.message : String(err),
+      });
+    } finally {
+      setDiskSaving(false);
+    }
+  };
+
+  const handleResetDefaults = () => {
+    resetSettingsDefaults();
+    setExportPrefs(DEFAULT_EXPORT_PREFS);
+    try {
+      localStorage.removeItem(EXPORT_STORAGE_KEY);
+    } catch {
+      // Ignore
+    }
+    setNotification({
+      type: 'info',
+      title: 'Settings Saved',
+      message: 'Configuration reset to studio factory defaults.',
+    });
+  };
 
   return (
     <section className="page-container" aria-labelledby={headingId}>
+      {/* Notification Banner */}
+      {notification ? (
+        <div style={{ marginBottom: 12 }}>
+          <StudioNotification
+            type={notification.type}
+            title={notification.title}
+            message={notification.message}
+            onDismiss={() => setNotification(null)}
+          />
+        </div>
+      ) : null}
+
       <div className="page-header-row">
         <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
           <SettingsIcon size={18} />
@@ -111,9 +247,17 @@ export function SettingsWorkspace() {
             Settings persist in <code className="mono">animforge.config.json</code> and{' '}
             <code>localStorage</code>.
           </span>
-          <button type="button" onClick={resetSettingsDefaults}>
+          <StudioButton
+            variant="secondary"
+            size="sm"
+            onClick={handleSaveToDisk}
+            loading={diskSaving}
+          >
+            Save to Disk
+          </StudioButton>
+          <StudioButton variant="secondary" size="sm" onClick={handleResetDefaults}>
             Reset to Defaults
-          </button>
+          </StudioButton>
         </div>
       </div>
 
@@ -140,7 +284,14 @@ export function SettingsWorkspace() {
                   key={opt.value}
                   type="button"
                   aria-pressed={selected}
-                  onClick={() => setThemePreference(opt.value)}
+                  onClick={() => {
+                    setThemePreference(opt.value);
+                    setNotification({
+                      type: 'success',
+                      title: 'Settings Saved',
+                      message: `Appearance set to ${opt.label}.`,
+                    });
+                  }}
                   style={{
                     textAlign: 'left',
                     display: 'flex',
@@ -159,7 +310,7 @@ export function SettingsWorkspace() {
           </div>
         </section>
 
-        {/* Workspace Preferences */}
+        {/* Workspace Preferences & Density */}
         <section className="panel" style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
           <h3 style={{ fontSize: 'var(--text-md)', fontWeight: 600 }}>Workspace Preferences</h3>
 
@@ -169,14 +320,28 @@ export function SettingsWorkspace() {
               <button
                 type="button"
                 aria-pressed={settingsPrefs.density === 'comfortable'}
-                onClick={() => updateSettingsPrefs({ density: 'comfortable' })}
+                onClick={() => {
+                  updateSettingsPrefs({ density: 'comfortable' });
+                  setNotification({
+                    type: 'success',
+                    title: 'Settings Saved',
+                    message: 'Interface density set to Comfortable.',
+                  });
+                }}
               >
                 Comfortable
               </button>
               <button
                 type="button"
                 aria-pressed={settingsPrefs.density === 'compact'}
-                onClick={() => updateSettingsPrefs({ density: 'compact' })}
+                onClick={() => {
+                  updateSettingsPrefs({ density: 'compact' });
+                  setNotification({
+                    type: 'success',
+                    title: 'Settings Saved',
+                    message: 'Interface density set to Compact.',
+                  });
+                }}
               >
                 Compact
               </button>
@@ -207,7 +372,14 @@ export function SettingsWorkspace() {
               id={reducedMotionId}
               type="checkbox"
               checked={settingsPrefs.reducedEffects}
-              onChange={(ev) => updateSettingsPrefs({ reducedEffects: ev.target.checked })}
+              onChange={(ev) => {
+                updateSettingsPrefs({ reducedEffects: ev.target.checked });
+                setNotification({
+                  type: 'success',
+                  title: 'Settings Saved',
+                  message: `Reduced effects ${ev.target.checked ? 'enabled' : 'disabled'}.`,
+                });
+              }}
             />
           </label>
 
@@ -237,16 +409,21 @@ export function SettingsWorkspace() {
               id={safeZonesId}
               type="checkbox"
               checked={settingsPrefs.showSafeZonesByDefault}
-              onChange={(ev) =>
-                updateSettingsPrefs({ showSafeZonesByDefault: ev.target.checked })
-              }
+              onChange={(ev) => {
+                updateSettingsPrefs({ showSafeZonesByDefault: ev.target.checked });
+                setNotification({
+                  type: 'success',
+                  title: 'Settings Saved',
+                  message: `Safe-zone guides ${ev.target.checked ? 'enabled' : 'disabled'}.`,
+                });
+              }}
             />
           </label>
         </section>
 
-        {/* New Project Defaults */}
+        {/* Animation Defaults */}
         <section className="panel" style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-          <h3 style={{ fontSize: 'var(--text-md)', fontWeight: 600 }}>New Project Defaults</h3>
+          <h3 style={{ fontSize: 'var(--text-md)', fontWeight: 600 }}>Animation Defaults</h3>
 
           <div className="field">
             <span>Default Aspect Ratio</span>
@@ -260,12 +437,17 @@ export function SettingsWorkspace() {
                     key={preset.id}
                     type="button"
                     aria-pressed={selected}
-                    onClick={() =>
+                    onClick={() => {
                       updateSettingsPrefs({
                         defaultWidth: preset.width,
                         defaultHeight: preset.height,
-                      })
-                    }
+                      });
+                      setNotification({
+                        type: 'success',
+                        title: 'Settings Saved',
+                        message: `Default resolution set to ${preset.id} (${preset.width}×${preset.height}).`,
+                      });
+                    }}
                   >
                     {preset.id}
                   </button>
@@ -285,7 +467,14 @@ export function SettingsWorkspace() {
                   key={fps}
                   type="button"
                   aria-pressed={settingsPrefs.defaultFps === fps}
-                  onClick={() => updateSettingsPrefs({ defaultFps: fps })}
+                  onClick={() => {
+                    updateSettingsPrefs({ defaultFps: fps });
+                    setNotification({
+                      type: 'success',
+                      title: 'Settings Saved',
+                      message: `Default frame rate set to ${fps} fps.`,
+                    });
+                  }}
                 >
                   {fps} fps
                 </button>
@@ -307,7 +496,14 @@ export function SettingsWorkspace() {
                     key={eng.id}
                     type="button"
                     aria-pressed={selected}
-                    onClick={() => updateSettingsPrefs({ defaultEngine: eng.id })}
+                    onClick={() => {
+                      updateSettingsPrefs({ defaultEngine: eng.id });
+                      setNotification({
+                        type: 'success',
+                        title: 'Settings Saved',
+                        message: `Preferred engine set to ${eng.label}.`,
+                      });
+                    }}
                     style={{
                       display: 'flex',
                       alignItems: 'center',
@@ -345,6 +541,78 @@ export function SettingsWorkspace() {
                   </button>
                 );
               })}
+            </div>
+          </div>
+        </section>
+
+        {/* Export Defaults */}
+        <section className="panel" style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+          <h3 style={{ fontSize: 'var(--text-md)', fontWeight: 600 }}>Export Defaults</h3>
+
+          <div className="field">
+            <span>Default Output Format</span>
+            <div className="segmented-row" role="group" aria-label="Default Output Format">
+              {(['mp4', 'webm', 'gif', 'png_sequence'] as const).map((fmt) => (
+                <button
+                  key={fmt}
+                  type="button"
+                  aria-pressed={exportPrefs.outputFormat === fmt}
+                  onClick={() => handleUpdateExportPrefs({ outputFormat: fmt })}
+                >
+                  {fmt === 'png_sequence' ? 'PNG Seq' : fmt.toUpperCase()}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <div className="field">
+            <span>Render Quality</span>
+            <div className="segmented-row" role="group" aria-label="Render Quality">
+              {(['high', 'medium', 'draft'] as const).map((q) => (
+                <button
+                  key={q}
+                  type="button"
+                  aria-pressed={exportPrefs.quality === q}
+                  onClick={() => handleUpdateExportPrefs({ quality: q })}
+                >
+                  {q === 'high' ? 'High (CRF 18)' : q === 'medium' ? 'Medium (CRF 23)' : 'Draft (CRF 28)'}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <div className="field">
+            <label htmlFor={exportFolderId}>Export Destination Subfolder</label>
+            <input
+              id={exportFolderId}
+              type="text"
+              value={exportPrefs.exportFolder}
+              onChange={(ev) => handleUpdateExportPrefs({ exportFolder: ev.target.value })}
+              placeholder="exports"
+            />
+            <span className="field-hint">Relative folder inside project directory for final render outputs.</span>
+          </div>
+
+          {/* Storage & Disk Persistence Card */}
+          <div
+            style={{
+              padding: 10,
+              background: 'var(--bg-surface-elevated)',
+              borderRadius: 'var(--radius-sm)',
+              border: '1px solid var(--border-subtle)',
+              display: 'flex',
+              flexDirection: 'column',
+              gap: 6,
+            }}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+              <span style={{ fontSize: 'var(--text-sm)', fontWeight: 600 }}>Disk Persistence</span>
+              <StatusBadge tone={diskConfig?.exists !== false ? 'pass' : 'warn'}>
+                {diskConfig?.exists !== false ? 'Config Active' : 'Unsaved Draft'}
+              </StatusBadge>
+            </div>
+            <div className="mono field-hint" style={{ fontSize: 'var(--text-xs)' }}>
+              Path: {diskConfig?.configPath ?? 'animforge.config.json'}
             </div>
           </div>
         </section>

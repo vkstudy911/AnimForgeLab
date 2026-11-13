@@ -461,4 +461,141 @@ describe('AnimationEditor workspace', () => {
     fireEvent.keyDown(splitClips[1], { key: 'Delete' });
     expect(within(timeline).getAllByRole('button', { name: /Bolt: wave/i })).toHaveLength(1);
   });
+
+  it('C6 CueInspector: edits CharacterAction transform controls (Position X/Y, Scale, Rotation, Opacity) using NumericInput', async () => {
+    await renderLoadedStudio();
+
+    const inspector = screen.getByLabelText('Cue Inspector Panel');
+    fireEvent.click(within(inspector).getByRole('button', { name: 'Add Action' }));
+    const actionCueSection = within(inspector).getByLabelText('Selected Action Cue');
+
+    // Edit Position X
+    const posX = within(actionCueSection).getByLabelText('Position X') as HTMLInputElement;
+    fireEvent.change(posX, { target: { value: '45' } });
+    fireEvent.blur(posX);
+    expect(posX.value).toBe('45');
+
+    // Edit Position Y
+    const posY = within(actionCueSection).getByLabelText('Position Y') as HTMLInputElement;
+    fireEvent.change(posY, { target: { value: '-20' } });
+    fireEvent.blur(posY);
+    expect(posY.value).toBe('-20');
+
+    // Edit Scale
+    const scaleInput = within(actionCueSection).getByLabelText('Scale') as HTMLInputElement;
+    fireEvent.change(scaleInput, { target: { value: '1.5' } });
+    fireEvent.blur(scaleInput);
+    expect(scaleInput.value).toBe('1.5');
+
+    // Edit Rotation
+    const rotInput = within(actionCueSection).getByLabelText('Rotation') as HTMLInputElement;
+    fireEvent.change(rotInput, { target: { value: '90' } });
+    fireEvent.blur(rotInput);
+    expect(rotInput.value).toBe('90');
+
+    // Edit Opacity
+    const opacityInput = within(actionCueSection).getByLabelText('Opacity') as HTMLInputElement;
+    fireEvent.change(opacityInput, { target: { value: '0.8' } });
+    fireEvent.blur(opacityInput);
+    expect(opacityInput.value).toBe('0.8');
+  });
+
+  it('C7 CueInspector & MultiTrackTimeline: adds, selects, edits, and deletes keyframes with diamond markers', async () => {
+    await renderLoadedStudio();
+
+    const inspector = screen.getByLabelText('Cue Inspector Panel');
+    const timeline = screen.getByLabelText('Multi-Track Timeline');
+
+    // Add an action cue
+    fireEvent.click(within(inspector).getByRole('button', { name: 'Add Action' }));
+    const actionClip = within(timeline).getByRole('button', { name: /Bolt: wave/i });
+    expect(actionClip).toBeTruthy();
+
+    // Click Add Keyframe button on timeline toolbar
+    const addKfBtn = within(timeline).getByRole('button', { name: 'Add Keyframe' });
+    fireEvent.click(addKfBtn);
+
+    // Verify visual diamond keyframe marker is rendered on the clip
+    const kfMarker = actionClip.querySelector('.keyframe-diamond[data-keyframe-id]') as HTMLElement;
+    expect(kfMarker).toBeTruthy();
+
+    // Keyframe Inspector is displayed in CueInspector
+    const kfInspector = within(inspector).getByLabelText('Keyframe Inspector');
+    expect(kfInspector).toBeTruthy();
+
+    // Edit keyframe time, property, value, and easing curve
+    const kfTime = within(kfInspector).getByLabelText('Keyframe Time') as HTMLInputElement;
+    fireEvent.change(kfTime, { target: { value: '0.75' } });
+    fireEvent.blur(kfTime);
+    expect(kfTime.value).toBe('0.75');
+
+    const kfProp = within(kfInspector).getByLabelText('Keyframe Property') as HTMLSelectElement;
+    fireEvent.change(kfProp, { target: { value: 'rotation' } });
+    expect(kfProp.value).toBe('rotation');
+
+    const kfVal = within(kfInspector).getByLabelText('Keyframe Value') as HTMLInputElement;
+    fireEvent.change(kfVal, { target: { value: '45' } });
+    fireEvent.blur(kfVal);
+    expect(kfVal.value).toBe('45');
+
+    const kfEase = within(kfInspector).getByLabelText('Keyframe Easing') as HTMLSelectElement;
+    fireEvent.change(kfEase, { target: { value: 'ease-out' } });
+    expect(kfEase.value).toBe('ease-out');
+
+    // Delete Keyframe via button in timeline
+    const delKfBtn = within(timeline).getByRole('button', { name: 'Delete Keyframe' });
+    fireEvent.click(delKfBtn);
+
+    // Keyframe diamond marker is removed
+    expect(actionClip.querySelector('.keyframe-diamond[data-keyframe-id]')).toBeNull();
+  });
+
+  it('C8 SceneOutliner: renders character presence pills and seeks playhead on scene selection', async () => {
+    await renderLoadedStudio();
+
+    const outliner = screen.getByLabelText('Scene Outliner Panel');
+    const timeline = screen.getByLabelText('Multi-Track Timeline');
+
+    // Scene 1 has character 'char_bot' (Bolt) -> verify presence pill is rendered
+    const boltPill = outliner.querySelector('.character-pill');
+    expect(boltPill).toBeTruthy();
+    expect(boltPill?.textContent).toContain('Bolt');
+
+    // Clicking Scene 2 seeks playhead to Scene 2 start time (2.5s)
+    const sceneCards = outliner.querySelectorAll<HTMLButtonElement>('button.scene-card-btn');
+    expect(sceneCards.length).toBeGreaterThanOrEqual(2);
+    fireEvent.click(sceneCards[1]);
+
+    const ruler = within(timeline).getByRole('slider', { name: 'Timeline playhead ruler' });
+    expect(ruler.getAttribute('aria-valuenow')).toBe('2.5');
+  });
+
+  it('C9 AnimationEditor: supports pane resizers (pane-resizer-v, pane-resizer-h) and magnet snapping toggle', async () => {
+    await renderLoadedStudio();
+
+    const timeline = screen.getByLabelText('Multi-Track Timeline');
+
+    // Toggle magnet snapping
+    const snapBtn = within(timeline).getByRole('button', { name: 'Snap' });
+    expect(snapBtn.getAttribute('aria-pressed')).toBe('true');
+    fireEvent.click(snapBtn);
+    expect(snapBtn.getAttribute('aria-pressed')).toBe('false');
+
+    // Test pane resizers
+    const leftResizer = screen.getByLabelText('Resize left panel');
+    expect(leftResizer).toBeTruthy();
+    fireEvent.keyDown(leftResizer, { key: 'ArrowRight' });
+
+    const rightResizer = screen.getByLabelText('Resize right panel');
+    expect(rightResizer).toBeTruthy();
+    fireEvent.keyDown(rightResizer, { key: 'ArrowLeft' });
+
+    const timelineResizer = screen.getByLabelText('Resize timeline panel');
+    expect(timelineResizer).toBeTruthy();
+    fireEvent.keyDown(timelineResizer, { key: 'ArrowUp' });
+
+    // Collapsible panel shortcuts [ and ]
+    fireEvent.keyDown(window, { key: '[' });
+    fireEvent.keyDown(window, { key: ']' });
+  });
 });

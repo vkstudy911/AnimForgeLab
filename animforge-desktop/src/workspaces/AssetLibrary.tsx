@@ -7,11 +7,12 @@ import {
   SearchIcon,
 } from '../components/ui/Icons';
 import { StatusBadge } from '../components/ui/StatusBadge';
+import { StudioDialog } from '../components/ui/StudioDialog';
 import { StudioTabs, type StudioTabItem } from '../components/ui/StudioTabs';
 import { useStudioContext } from '../context/StudioContext';
 import type { AssetItem, AssetType, ProjectDetail, WorkspaceAssetsResult } from '../types';
 
-type CategoryFilter = 'all' | AssetType;
+type CategoryFilter = 'all' | 'video' | AssetType;
 
 interface PendingOverwrite {
   kind: 'file' | 'workspace';
@@ -23,13 +24,13 @@ interface PendingOverwrite {
 
 const CATEGORY_OPTIONS: Array<{ id: CategoryFilter; label: string }> = [
   { id: 'all', label: 'All' },
-  { id: 'background', label: 'background' },
-  { id: 'character', label: 'character' },
-  { id: 'prop', label: 'prop' },
-  { id: 'audio', label: 'audio' },
-  { id: 'font', label: 'font' },
-  { id: 'model', label: 'model' },
-  { id: 'reference', label: 'reference' },
+  { id: 'background', label: 'Background' },
+  { id: 'character', label: 'Character' },
+  { id: 'prop', label: 'Prop' },
+  { id: 'audio', label: 'Audio' },
+  { id: 'video', label: 'Video' },
+  { id: 'font', label: 'Font' },
+  { id: 'reference', label: 'Reference' },
 ];
 
 const ASSET_TYPES: AssetType[] = [
@@ -59,8 +60,16 @@ function isAudioAsset(asset: AssetItem): boolean {
   );
 }
 
+function isVideoAsset(asset: AssetItem): boolean {
+  return (
+    (asset.type as string) === 'video' ||
+    Boolean(asset.mimeType?.startsWith('video/')) ||
+    /\.(mp4|webm|mov|mkv)$/i.test(asset.uri)
+  );
+}
+
 function isImageAsset(asset: AssetItem): boolean {
-  if (isAudioAsset(asset)) return false;
+  if (isAudioAsset(asset) || isVideoAsset(asset)) return false;
   return (
     Boolean(asset.mimeType?.startsWith('image/')) ||
     /\.(png|jpe?g|webp|gif|svg|avif)$/i.test(asset.uri) ||
@@ -114,6 +123,8 @@ export function AssetLibrary() {
   const [editingAssetId, setEditingAssetId] = useState<string | null>(null);
   const [pendingOverwrite, setPendingOverwrite] = useState<PendingOverwrite | null>(null);
   const [importedPathMap, setImportedPathMap] = useState<Record<string, string>>({});
+  const [isDragging, setIsDragging] = useState(false);
+  const [previewingVideoAsset, setPreviewingVideoAsset] = useState<AssetItem | null>(null);
   const discoveredHeadingId = useId();
 
   const uploadInputRef = useRef<HTMLInputElement | null>(null);
@@ -218,7 +229,13 @@ export function AssetLibrary() {
   const filteredAssets = useMemo(() => {
     const q = searchQuery.trim().toLowerCase();
     return assets.filter((asset) => {
-      if (category !== 'all' && asset.type !== category) return false;
+      if (category === 'video') {
+        if (!isVideoAsset(asset)) return false;
+      } else if (category === 'audio') {
+        if (!isAudioAsset(asset)) return false;
+      } else if (category !== 'all' && asset.type !== category) {
+        return false;
+      }
       if (!q) return true;
       return (
         asset.name.toLowerCase().includes(q) ||
@@ -256,8 +273,16 @@ export function AssetLibrary() {
   }
 
   const categoryTabs: StudioTabItem[] = CATEGORY_OPTIONS.map((opt) => {
-    const count =
-      opt.id === 'all' ? assets.length : assets.filter((a) => a.type === opt.id).length;
+    let count = 0;
+    if (opt.id === 'all') {
+      count = assets.length;
+    } else if (opt.id === 'video') {
+      count = assets.filter((a) => isVideoAsset(a)).length;
+    } else if (opt.id === 'audio') {
+      count = assets.filter((a) => isAudioAsset(a)).length;
+    } else {
+      count = assets.filter((a) => a.type === opt.id).length;
+    }
     return {
       id: opt.id,
       label: `${opt.label} (${count})`,
@@ -370,21 +395,27 @@ export function AssetLibrary() {
     }));
   };
 
-  const handleUploadFileChange = async (ev: React.ChangeEvent<HTMLInputElement>) => {
-    const file = ev.target.files?.[0];
-    ev.target.value = '';
-    if (!file || !draftProject) return;
+  const handleUploadFile = async (file: File) => {
+    if (!draftProject) return;
+    let targetType = assetType;
+    if (assetType === 'background') {
+      if (/\.(mp3|wav|ogg|flac|m4a|aac)$/i.test(file.name)) {
+        targetType = 'audio';
+      } else if (/\.(mp4|webm|mov)$/i.test(file.name)) {
+        targetType = 'reference';
+      }
+    }
     const nextName = assetName.trim() || undefined;
     const pending: PendingOverwrite = {
       kind: 'file',
       file,
       ...(nextName ? { name: nextName } : {}),
-      assetType,
+      assetType: targetType,
     };
     setPendingOverwrite(pending);
     const res = await importAssetFile(draftProject.id, file, {
       ...(nextName ? { name: nextName } : {}),
-      assetType,
+      assetType: targetType,
     });
     if (res) {
       if (res.workspaceRelativePath) {
@@ -394,6 +425,13 @@ export function AssetLibrary() {
       setAssetName('');
       void refreshDiskScan();
     }
+  };
+
+  const handleUploadFileChange = async (ev: React.ChangeEvent<HTMLInputElement>) => {
+    const file = ev.target.files?.[0];
+    ev.target.value = '';
+    if (!file) return;
+    await handleUploadFile(file);
   };
 
   const handleImportWorkspaceFile = async (sourcePath: string) => {
@@ -459,6 +497,7 @@ export function AssetLibrary() {
           <input
             ref={uploadInputRef}
             type="file"
+            accept=".png,.jpg,.jpeg,.svg,.webp,.mp3,.wav,.ogg,.flac,.mp4,.webm,image/*,audio/*,video/*"
             aria-label="Upload Asset File"
             className="sr-only"
             onChange={(ev) => void handleUploadFileChange(ev)}
@@ -549,6 +588,42 @@ export function AssetLibrary() {
         {/* Left: Filter Bar + Asset Grid */}
         <div style={{ display: 'flex', flexDirection: 'column', gap: 12, minWidth: 0 }}>
           <div className="panel" style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+            <div
+              className="asset-dropzone"
+              role="region"
+              aria-label="Drag and drop file upload zone"
+              onDragOver={(ev) => {
+                ev.preventDefault();
+                setIsDragging(true);
+              }}
+              onDragLeave={() => setIsDragging(false)}
+              onDrop={(ev) => {
+                ev.preventDefault();
+                setIsDragging(false);
+                const file = ev.dataTransfer.files?.[0];
+                if (file) {
+                  void handleUploadFile(file);
+                }
+              }}
+              onClick={() => uploadInputRef.current?.click()}
+              style={{
+                border: `2px dashed ${isDragging ? 'var(--accent-amber)' : 'var(--border-subtle)'}`,
+                borderRadius: 'var(--radius-sm)',
+                padding: '12px 14px',
+                textAlign: 'center',
+                cursor: 'pointer',
+                background: isDragging ? 'var(--bg-surface-elevated)' : 'var(--bg-input)',
+                transition: 'border-color 0.15s, background-color 0.15s',
+              }}
+            >
+              <p style={{ margin: 0, fontSize: 'var(--text-sm)', color: 'var(--text-secondary)' }}>
+                Drag &amp; drop files here (.png, .jpg, .svg, .webp, .mp3, .wav, .mp4, .webm) or{' '}
+                <span style={{ color: 'var(--accent-amber)', textDecoration: 'underline' }}>
+                  browse to upload
+                </span>
+              </p>
+            </div>
+
             <StudioTabs
               label="Asset Categories"
               tabs={categoryTabs}
@@ -586,6 +661,7 @@ export function AssetLibrary() {
                 const resolvedPath = resolveAssetWorkspacePath(asset);
                 const previewUrl = buildPreviewUrl(previewBaseUrl, resolvedPath);
                 const audioMode = isAudioAsset(asset);
+                const videoMode = isVideoAsset(asset);
                 const imageMode = isImageAsset(asset);
                 const isSceneBg = activeScene?.backgroundAssetId === asset.id;
                 const isSceneAudio = Boolean(
@@ -679,6 +755,27 @@ export function AssetLibrary() {
                         {asset.uri}
                       </p>
 
+                      <div
+                        className="field-hint mono"
+                        style={{
+                          fontSize: 'var(--text-xs)',
+                          display: 'flex',
+                          flexWrap: 'wrap',
+                          gap: 8,
+                          color: 'var(--text-secondary)',
+                        }}
+                      >
+                        <span>File: {asset.uri.split('/').pop()}</span>
+                        {asset.metadata?.width != null && asset.metadata?.height != null ? (
+                          <span>
+                            {String(asset.metadata.width)}x{String(asset.metadata.height)}
+                          </span>
+                        ) : null}
+                        {asset.metadata?.duration != null ? (
+                          <span>{String(asset.metadata.duration)}s</span>
+                        ) : null}
+                      </div>
+
                       {previewUrl && imageMode ? (
                         <div className="scene-thumb-card">
                           <img
@@ -686,6 +783,30 @@ export function AssetLibrary() {
                             alt={asset.name}
                             style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }}
                           />
+                        </div>
+                      ) : previewUrl && videoMode ? (
+                        <div className="scene-thumb-card" style={{ position: 'relative' }}>
+                          <video
+                            src={previewUrl}
+                            preload="metadata"
+                            style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }}
+                          />
+                          <button
+                            type="button"
+                            onClick={() => setPreviewingVideoAsset(asset)}
+                            style={{
+                              position: 'absolute',
+                              bottom: 6,
+                              right: 6,
+                              padding: '2px 8px',
+                              fontSize: 'var(--text-xs)',
+                              background: 'rgba(0,0,0,0.7)',
+                              color: '#fff',
+                              borderRadius: 'var(--radius-xs)',
+                            }}
+                          >
+                            Preview Video
+                          </button>
                         </div>
                       ) : previewUrl && audioMode ? (
                         <div
@@ -748,6 +869,14 @@ export function AssetLibrary() {
                           disabled={busy.saving}
                         >
                           Add to Scene Audio
+                        </button>
+                      ) : null}
+                      {videoMode && previewUrl ? (
+                        <button
+                          type="button"
+                          onClick={() => setPreviewingVideoAsset(asset)}
+                        >
+                          Preview Video
                         </button>
                       ) : null}
                       <button
@@ -891,6 +1020,26 @@ export function AssetLibrary() {
           </form>
         </aside>
       </div>
+
+      <StudioDialog
+        open={Boolean(previewingVideoAsset)}
+        title={previewingVideoAsset ? `Video Preview: ${previewingVideoAsset.name}` : 'Video Preview'}
+        onClose={() => setPreviewingVideoAsset(null)}
+      >
+        {previewingVideoAsset ? (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+            <video
+              controls
+              autoPlay
+              src={buildPreviewUrl(previewBaseUrl, resolveAssetWorkspacePath(previewingVideoAsset)) ?? undefined}
+              style={{ width: '100%', maxHeight: 420, borderRadius: 'var(--radius-sm)', background: '#000' }}
+            />
+            <div className="mono field-hint" style={{ wordBreak: 'break-all' }}>
+              {previewingVideoAsset.uri}
+            </div>
+          </div>
+        ) : null}
+      </StudioDialog>
     </section>
   );
 }

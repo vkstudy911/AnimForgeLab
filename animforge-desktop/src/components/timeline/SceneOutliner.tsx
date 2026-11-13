@@ -282,6 +282,48 @@ export function SceneOutliner() {
                       <div className="field-hint mono">
                         {scene.duration}s · {scene.timeline.characterActions.length} cues
                       </div>
+                      {scene.characterIds.length > 0 && (
+                        <div
+                          style={{
+                            display: 'flex',
+                            flexWrap: 'wrap',
+                            gap: 3,
+                            marginTop: 3,
+                          }}
+                        >
+                          {scene.characterIds.map((charId) => {
+                            const char = draftProject.characters.find((c) => c.id === charId);
+                            if (!char) return null;
+                            return (
+                              <span
+                                key={charId}
+                                className="character-pill"
+                                style={{
+                                  fontSize: '10px',
+                                  padding: '1px 5px',
+                                  borderRadius: '999px',
+                                  background: 'var(--bg-surface-elevated, rgba(255,255,255,0.08))',
+                                  border: '1px solid var(--border-subtle, rgba(255,255,255,0.15))',
+                                  color: 'var(--text-secondary, #94a3b8)',
+                                  display: 'inline-flex',
+                                  alignItems: 'center',
+                                  gap: 3,
+                                }}
+                              >
+                                <span
+                                  style={{
+                                    width: 5,
+                                    height: 5,
+                                    borderRadius: '50%',
+                                    backgroundColor: char.colorPalette?.[0] ?? 'var(--accent-primary)',
+                                  }}
+                                />
+                                {char.name}
+                              </span>
+                            );
+                          })}
+                        </div>
+                      )}
                     </div>
                   </div>
                 ) : (
@@ -316,6 +358,48 @@ export function SceneOutliner() {
                       <div className="field-hint mono">
                         {scene.duration}s · {scene.timeline.characterActions.length} cues
                       </div>
+                      {scene.characterIds.length > 0 && (
+                        <div
+                          style={{
+                            display: 'flex',
+                            flexWrap: 'wrap',
+                            gap: 3,
+                            marginTop: 3,
+                          }}
+                        >
+                          {scene.characterIds.map((charId) => {
+                            const char = draftProject.characters.find((c) => c.id === charId);
+                            if (!char) return null;
+                            return (
+                              <span
+                                key={charId}
+                                className="character-pill"
+                                style={{
+                                  fontSize: '10px',
+                                  padding: '1px 5px',
+                                  borderRadius: '999px',
+                                  background: 'var(--bg-surface-elevated, rgba(255,255,255,0.08))',
+                                  border: '1px solid var(--border-subtle, rgba(255,255,255,0.15))',
+                                  color: 'var(--text-secondary, #94a3b8)',
+                                  display: 'inline-flex',
+                                  alignItems: 'center',
+                                  gap: 3,
+                                }}
+                              >
+                                <span
+                                  style={{
+                                    width: 5,
+                                    height: 5,
+                                    borderRadius: '50%',
+                                    backgroundColor: char.colorPalette?.[0] ?? 'var(--accent-primary)',
+                                  }}
+                                />
+                                {char.name}
+                              </span>
+                            );
+                          })}
+                        </div>
+                      )}
                     </div>
                   </button>
                 )}

@@ -1,8 +1,8 @@
 # AnimForge Studio — Live Execution Progress Log
 
 **Last Updated:** 2026-11-13  
-**Active Milestone:** Redesign Phase 1 — Design Foundation & Global Desktop Shell (`DONE`)  
-**Current Task:** Phase 1 Design Foundation Primitives + Global Desktop Shell Screenshots & QA Sign-Off `DONE`
+**Active Milestone:** Redesign Phase 2 — Four-Agent Parallel Development Architecture (`DONE`)  
+**Current Task:** Phase 2 Complete 10-Workspace Implementation, Timeline Keyframing, Character Rigging & Asset/Render Pipeline Sign-Off `DONE`
 
 ---
 
@@ -105,6 +105,19 @@
 | **Phase 1B Global Desktop Shell** | Top Header (Branding, Project Selector, Unsaved Changes dot + Save, Projects/Story/Studio/Render nav, Health pill, Theme toggle, Preview, Export MP4), Left Sidebar (`WorkspaceRail` 10 icons with `aria-current="page"` and `Alt+1..0`), Main Workspace (`page-container`, `panel`, responsive spacing `960x640` min / `1280x820` default), Panel System (resizable vertical/horizontal splitters, collapsible outliner/inspector/timeline, context inspector, bottom timeline), Tauri window behavior preserved | `DONE` | Coordinator | `WorkspaceRail.test.tsx` (`1/1`), `App.test.tsx` (`5/5`), `AnimationEditor.test.tsx` (`8/8`), Rust backend (`19/19` tests, Clippy `0` warnings) |
 | **Phase 1C Navigation** | Actual page navigation for all 10 workspaces (`#/home`, `#/projects`, `#/story`, `#/studio`, `#/characters`, `#/assets`, `#/render`, `#/agents`, `#/settings`, `#/diagnostics`); landmark roles, keyboard shortcuts, error boundary per workspace | `DONE` | Coordinator | `App.test.tsx` (`5/5` verifying shell landmarks, theme cycle, 10-workspace navigation), headless Chrome DOM verification across all 10 routes |
 | **Visual Inspection & Screenshots** | Headless Chrome (`1280x820`) screenshots of redesigned desktop shell in Dark & Light modes, Projects, Story & Scenes, Home, and Diagnostics | `DONE` | Coordinator | `01-desktop-shell-studio-dark.png`, `02-desktop-shell-studio-light.png`, `03-workspace-projects.png`, `04-workspace-story.png`, `05-workspace-home.png`, `06-workspace-diagnostics.png` in `docs/redesign/screenshots/` and conversation artifacts |
+
+---
+
+## Redesign Phase 2 — Four-Agent Parallel Development Architecture (2026-11-13)
+
+| Task | Scope | Status | Owners | Verification Evidence |
+| :--- | :--- | :--- | :--- | :--- |
+| **Agent 1: Management & Settings** | `HomeDashboard` (statistics, recent activity, starter templates), `ProjectManager` (multi-attribute sort, status filter, rename, duplicate, delete confirmation, JSON import/export, reveal folder), `SettingsWorkspace` (appearance, compact density, defaults, disk save, notification feedback) | `DONE` | Agent 1 (`fb6f97dd`) + Coordinator | `ManagementWorkspaces.test.tsx` (`11/11` unit tests pass) |
+| **Agent 2: Story & Characters** | `StoryScenesWorkspace` (logline, art style, beat management CRUD, scene reordering, character assignment, scene-to-scene nav), `CharacterStudio` (cast roster, profile, color swatches, SVG rig schematic with draggable pivots/arrow keys, rig parts list, expressions/poses, scene checklist, schema-validated JSON import/export) | `DONE` | Agent 2 (`318ddc54`) + Coordinator | `StoryScenesAndCharacterStudio.test.tsx` (`3/3` unit tests pass) |
+| **Agent 3: Animation Engine & Timeline** | `MultiTrackTimeline` (4 tracks, playhead scrub, millimeter ruler, snap toggle, track visibility/lock, clip drag-move/resize/split/delete, keyframe diamond markers), `CueInspector` (character transform controls X/Y/Scale/Rotation/Opacity with `NumericInput`, keyframe inspector with easing, camera/audio editors), `SceneOutliner` (seek playhead, rename, duplicate, delete), `AnimationEditor` resizable workbench | `DONE` | Agent 3 (`59ac20ba`) + Coordinator | `AnimationEditor.test.tsx` (`12/12` unit tests pass), `PreviewStage.test.tsx` (`5/5` tests pass) |
+| **Agent 4: Assets, Render, Agents & Diagnostics** | `AssetLibrary` (dropzone, category filters, thumbnails over `PreviewServer`, metadata, rename, scene-ref-cleaned delete), `RenderWorkspace` (resolution presets, MP4/WebM formats, circular progress ring, render cancel, ffprobe video metrics, SQLite history), `AgentCenterWorkspace` (16-tool MCP catalog, parameter inspector, deterministic agent triggers, logs), `DiagnosticsWorkspace` (loopback latency probe, DoctorBar, storage health, copy report) | `DONE` | Agent 4 (`a5f37b2c`) + Coordinator | `SecondaryWorkspaces.test.tsx` (`4/4` unit tests pass) |
+| **Visual Verification & Phase 2 Screenshots** | Headless Chrome (`1280x820`) capture of all 10 workspaces with production assets and live mock Tauri IPC | `DONE` | Coordinator | 10 screenshots (`01` through `10`) in `docs/redesign/screenshots/` and conversation artifacts |
+| **Integration Quality Gate** | Sequential automated suite across full monorepo | `DONE` | Coordinator | Desktop Vitest (`59/59` across 11 files), Desktop Typecheck (`0` errors), Desktop Vite Build (`68` modules, `369ms`), Rust Clippy (`0` warnings), Rust Cargo Tests (`19/19`), Core Unit Tests (`31/31`) |
 
 ---
 

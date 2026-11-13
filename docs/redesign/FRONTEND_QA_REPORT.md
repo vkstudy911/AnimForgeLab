@@ -90,3 +90,36 @@ Captured via headless Google Chrome (`1280x820`) running against the production 
 - `04-workspace-story.png`: Story & Scenes Workspace with storyboard logline, beat cards, and scene sequence order.
 - `05-workspace-home.png`: Home Dashboard with health status, recent projects, and quick navigation.
 - `06-workspace-diagnostics.png`: Diagnostics Workspace with PreviewServer status and live 10-category Doctor checks.
+
+---
+
+## 5. Phase 2 Four-Agent Verification & Visual Sign-Off (2026-11-13)
+
+**Phase 2 Scope:** Four-Agent Parallel Development Architecture covering complete 10-workspace functional implementation:
+- **Agent 1:** Home Dashboard statistics & activity, Projects Workspace sorting/filtering/rename/delete/duplicate, Settings Workspace disk persistence & density.
+- **Agent 2:** Story & Scenes storyboard/beat management & scene ordering, Character Studio cast roster, SVG rig schematic with draggable pivots, parts, and expressions/poses.
+- **Agent 3:** Animation Studio multi-track timeline (4 lanes, drag/resize/split/delete, keyframe diamond markers), Cue Inspector transform controls (`NumericInput`) & camera/audio, Scene Outliner hierarchy & seeking.
+- **Agent 4:** Asset Library dropzone & preview server loopback thumbnails, Render Workspace resolution presets, MP4/WebM formats, circular progress ring, and render history, Agent Center 16-tool MCP catalog & deterministic actions, Diagnostics loopback latency probe & DoctorBar.
+
+### 5.1 Automated Test Matrix
+| Suite | Command | Result | Duration |
+| :--- | :--- | :--- | :--- |
+| **Desktop Vitest** | `npm --prefix animforge-desktop test` | **PASS — 11/11 files, 59/59 tests** | 2.16s |
+| **Desktop TypeScript** | `npm --prefix animforge-desktop run typecheck` | **PASS — 0 errors** (`tsc --noEmit`) | 0.9s |
+| **Desktop Vite Build** | `npm --prefix animforge-desktop run build` | **PASS — 68 modules**, `dist/index.html` (0.50 kB), `dist/assets/index-DbiU5hXu.css` (29.55 kB), `dist/assets/index-CPLeZ45A.js` (421.83 kB) | 369ms |
+| **Rust Clippy** | `cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets -- -D warnings` | **PASS — 0 warnings** | 0.33s |
+| **Rust Backend Tests** | `cargo test --manifest-path src-tauri/Cargo.toml` | **PASS — 19/19 tests** | 0.81s |
+| **Core TS & Tests** | `npm --prefix animforge-core run typecheck && npm test` | **PASS — 31/31 unit tests** (2 opt-in E2E tests cleanly skipped) | 1.48s |
+
+### 5.2 Phase 2 Complete 10-Workspace Screenshots
+Captured via headless Google Chrome (`1280x820`) against production build with real project data (`proj_bobo_magic_flower`):
+- `01-desktop-shell-studio-dark.png` (137,012 bytes): Animation Studio in dark mode with Scene Outliner, `<gm-player>` stage, Multi-Track Timeline with keyframes, and Cue Inspector.
+- `02-desktop-shell-studio-light.png` (138,054 bytes): Animation Studio in Warm Paper light mode (`--bg-app: #f5f3ee`).
+- `03-workspace-projects.png` (141,855 bytes): Projects Workspace with status tags, sort dropdown, project cards, and folder reveal.
+- `04-workspace-story.png` (101,859 bytes): Story & Scenes with logline, art style, beat management, and scene sequence cards.
+- `05-workspace-home.png` (120,000+ bytes): Home Dashboard with project statistics banner, recent activity, and quick-start templates.
+- `06-workspace-diagnostics.png` (102,841 bytes): System Diagnostics with PreviewServer loopback latency probe and 10-category Doctor checks.
+- `07-workspace-characters.png` (124,080 bytes): Character Studio with Cast roster, Bobo profile, color swatches, SVG rig schematic with draggable pivots, and expressions/poses.
+- `08-workspace-assets.png` (127,838 bytes): Asset Library with file dropzone, categorized thumbnails, and metadata inspector.
+- `09-workspace-render.png` (113,865 bytes): Render Workspace with resolution presets, format options, circular progress ring, and render history.
+- `10-workspace-agents.png` (193,305 bytes): Agent Center with 16-tool interactive MCP catalog, parameter inspector, deterministic agent triggers, and execution log console.

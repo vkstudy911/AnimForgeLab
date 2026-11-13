@@ -13,6 +13,21 @@ import type {
 import { PlusIcon, SaveIcon } from '../ui/Icons';
 import { NumericInput } from '../ui/NumericInput';
 
+export type KeyframeEasing = 'linear' | 'ease-in' | 'ease-out' | 'ease-in-out';
+
+export interface KeyframeItem {
+  id: string;
+  time: number;
+  property: string;
+  value: number;
+  easing?: KeyframeEasing;
+}
+
+export interface CueInspectorProps {
+  selectedKeyframeId?: string | null;
+  onSelectKeyframe?: (id: string | null) => void;
+}
+
 const TRANSITION_TYPES: TransitionType[] = ['none', 'fade', 'wipe', 'slide', 'dissolve'];
 const CAMERA_TYPES: CameraMoveType[] = ['static', 'pan', 'zoom', 'push', 'pull', 'dolly', 'shake'];
 const CAMERA_EASINGS: CameraEasing[] = ['linear', 'ease-in', 'ease-out', 'ease-in-out', 'spring'];
@@ -51,12 +66,16 @@ function createDefaultCameraMove(duration: number, overrides?: Partial<CameraMov
   };
 }
 
-export function CueInspector() {
+export function CueInspector({
+  selectedKeyframeId,
+  onSelectKeyframe,
+}: CueInspectorProps = {}) {
   const {
     draftProject,
     selectedSceneId,
     selection,
     setSelection,
+    playheadTime,
     updateDraft,
     saveDraft,
     navigate,
@@ -64,6 +83,10 @@ export function CueInspector() {
     isDirty,
     busy,
   } = useStudioContext();
+
+  const [localKeyframeId, setLocalKeyframeId] = useState<string | null>(null);
+  const activeKfId = selectedKeyframeId !== undefined ? selectedKeyframeId : localKeyframeId;
+  const setActiveKfId = onSelectKeyframe ?? setLocalKeyframeId;
 
   const titleId = useId();
   const descId = useId();
@@ -92,6 +115,11 @@ export function CueInspector() {
 
   if (!draftProject) return null;
 
+  const effectiveCharId =
+    (draftProject.characters.some((c) => c.id === newActionCharId)
+      ? newActionCharId
+      : draftProject.characters[0]?.id) ?? 'hero';
+
   const orderedScenes = [...draftProject.scenes].sort((a, b) => a.sequenceIndex - b.sequenceIndex);
   const activeScene =
     orderedScenes.find((s) => s.id === selectedSceneId) ?? orderedScenes[0] ?? null;
@@ -112,7 +140,6 @@ export function CueInspector() {
   }
 
   const firstCam = activeScene.timeline.cameraMoves[0];
-
   const safeSceneDur = Number.isFinite(activeScene.duration) ? Math.max(0.25, activeScene.duration) : 1;
 
   const handleAddAction = () => {
@@ -122,7 +149,7 @@ export function CueInspector() {
       name: newActionName,
       startTime: 0,
       duration: Math.min(1.5, Math.max(0.5, safeSceneDur)),
-      parameters: { characterId: newActionCharId },
+      parameters: { characterId: effectiveCharId },
     };
 
     updateScene(activeScene.id, (scene) => ({
@@ -204,6 +231,22 @@ export function CueInspector() {
               }
             />
           </div>
+          <div style={{ display: 'flex', gap: 4, alignItems: 'center', flexWrap: 'wrap' }}>
+            <span style={{ fontSize: 'var(--text-xs)', color: 'var(--text-secondary)' }}>Palette:</span>
+            {char.colorPalette.map((col, idx) => (
+              <span
+                key={`${char.id}-pal-${idx}`}
+                title={col}
+                style={{
+                  width: 14,
+                  height: 14,
+                  borderRadius: 3,
+                  backgroundColor: col,
+                  border: '1px solid var(--border-subtle)',
+                }}
+              />
+            ))}
+          </div>
         </section>
       );
     }
@@ -211,6 +254,14 @@ export function CueInspector() {
     if (selection.kind === 'asset') {
       const asset = draftProject.assets.find((a) => a.id === selection.id);
       if (!asset) return null;
+
+      const updateAssetType = (nextType: AssetType) => {
+        updateDraft((prev) => ({
+          ...prev,
+          assets: prev.assets.map((a) => (a.id === asset.id ? { ...a, type: nextType } : a)),
+        }));
+      };
+
       return (
         <section
           aria-label="Selected Asset Inspector"
@@ -225,40 +276,22 @@ export function CueInspector() {
           }}
         >
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <strong style={{ fontSize: 'var(--text-xs)' }}>Selected Asset</strong>
-            <button type="button" onClick={() => navigate('assets')}>
-              Asset Library
+            <strong style={{ fontSize: 'var(--text-xs)' }}>Asset: {asset.name}</strong>
+            <button
+              type="button"
+              className="btn-ghost"
+              onClick={() => navigate('assets')}
+              style={{ fontSize: 'var(--text-xs)', padding: '2px 6px' }}
+            >
+              Library
             </button>
           </div>
           <div className="field">
-            <label htmlFor="insp-asset-name">Asset Name</label>
-            <input
-              id="insp-asset-name"
-              type="text"
-              value={asset.name}
-              onChange={(ev) =>
-                updateDraft((prev) => ({
-                  ...prev,
-                  assets: prev.assets.map((a) =>
-                    a.id === asset.id ? { ...a, name: ev.target.value } : a
-                  ),
-                }))
-              }
-            />
-          </div>
-          <div className="field">
-            <label htmlFor="insp-asset-type">Asset Category</label>
+            <label htmlFor="cue-asset-type">Asset Type</label>
             <select
-              id="insp-asset-type"
+              id="cue-asset-type"
               value={asset.type}
-              onChange={(ev) =>
-                updateDraft((prev) => ({
-                  ...prev,
-                  assets: prev.assets.map((a) =>
-                    a.id === asset.id ? { ...a, type: ev.target.value as AssetType } : a
-                  ),
-                }))
-              }
+              onChange={(ev) => updateAssetType(ev.target.value as AssetType)}
             >
               {ASSET_TYPES.map((t) => (
                 <option key={t} value={t}>
@@ -319,6 +352,38 @@ export function CueInspector() {
       };
 
       const assignedCharId = String(action.parameters?.characterId ?? 'hero');
+      const rawKfs = action.parameters?.keyframes;
+      const actionKeyframes: KeyframeItem[] = Array.isArray(rawKfs)
+        ? (rawKfs as KeyframeItem[])
+        : [];
+      const selectedKeyframe = actionKeyframes.find((k) => k.id === activeKfId) ?? null;
+
+      const handleAddKeyframeToAction = () => {
+        const offset = Math.max(0, Math.min(action.duration, playheadTime - action.startTime));
+        const newKf: KeyframeItem = {
+          id: `kf_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+          time: Number(offset.toFixed(2)),
+          property: 'positionX',
+          value: Number(action.parameters?.positionX ?? 0),
+          easing: 'ease-in-out',
+        };
+        const nextKfs = [...actionKeyframes, newKf].sort((a, b) => a.time - b.time);
+        updateParam('keyframes', nextKfs);
+        setActiveKfId(newKf.id);
+      };
+
+      const handleUpdateKeyframe = (kfId: string, patch: Partial<KeyframeItem>) => {
+        const nextKfs = actionKeyframes.map((k) => (k.id === kfId ? { ...k, ...patch } : k));
+        updateParam('keyframes', nextKfs);
+      };
+
+      const handleDeleteKeyframeFromAction = (kfId: string) => {
+        const nextKfs = actionKeyframes.filter((k) => k.id !== kfId);
+        updateParam('keyframes', nextKfs);
+        if (activeKfId === kfId) {
+          setActiveKfId(null);
+        }
+      };
 
       return (
         <section
@@ -401,6 +466,74 @@ export function CueInspector() {
             </div>
           </div>
 
+          {/* Transform controls for CharacterAction */}
+          <div style={{ borderTop: '1px solid var(--border-subtle)', paddingTop: 6 }}>
+            <span style={{ fontSize: 'var(--text-xs)', fontWeight: 600, display: 'block', marginBottom: 4 }}>
+              Transform Controls
+            </span>
+            <div className="dialog-two-col">
+              <div className="field">
+                <label htmlFor="cue-action-pos-x">Position X</label>
+                <NumericInput
+                  id="cue-action-pos-x"
+                  aria-label="Position X"
+                  step={1}
+                  value={Number(action.parameters?.positionX ?? 0)}
+                  onCommit={(val) => updateParam('positionX', val)}
+                />
+              </div>
+              <div className="field">
+                <label htmlFor="cue-action-pos-y">Position Y</label>
+                <NumericInput
+                  id="cue-action-pos-y"
+                  aria-label="Position Y"
+                  step={1}
+                  value={Number(action.parameters?.positionY ?? 0)}
+                  onCommit={(val) => updateParam('positionY', val)}
+                />
+              </div>
+            </div>
+
+            <div className="dialog-two-col">
+              <div className="field">
+                <label htmlFor="cue-action-scale">Scale</label>
+                <NumericInput
+                  id="cue-action-scale"
+                  aria-label="Scale"
+                  min={0.01}
+                  max={10}
+                  step={0.05}
+                  strictPositive
+                  value={Number(action.parameters?.scale ?? 1)}
+                  onCommit={(val) => updateParam('scale', val)}
+                />
+              </div>
+              <div className="field">
+                <label htmlFor="cue-action-rotation">Rotation</label>
+                <NumericInput
+                  id="cue-action-rotation"
+                  aria-label="Rotation"
+                  step={1}
+                  value={Number(action.parameters?.rotation ?? 0)}
+                  onCommit={(val) => updateParam('rotation', val)}
+                />
+              </div>
+            </div>
+
+            <div className="field">
+              <label htmlFor="cue-action-opacity">Opacity</label>
+              <NumericInput
+                id="cue-action-opacity"
+                aria-label="Opacity"
+                min={0}
+                max={1}
+                step={0.05}
+                value={Number(action.parameters?.opacity ?? 1)}
+                onCommit={(val) => updateParam('opacity', val)}
+              />
+            </div>
+          </div>
+
           <div className="field">
             <label htmlFor="cue-action-expr">Expression / Motion Note</label>
             <input
@@ -420,6 +553,184 @@ export function CueInspector() {
             />
             <span>Smile expression</span>
           </label>
+
+          {/* Keyframe Inspector for CharacterAction */}
+          <div
+            style={{
+              borderTop: '1px solid var(--border-subtle)',
+              paddingTop: 6,
+              display: 'flex',
+              flexDirection: 'column',
+              gap: 6,
+            }}
+          >
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <span style={{ fontSize: 'var(--text-xs)', fontWeight: 600 }}>
+                Keyframes ({actionKeyframes.length})
+              </span>
+              <button
+                type="button"
+                className="btn-ghost"
+                style={{ fontSize: '11px', padding: '2px 6px' }}
+                onClick={handleAddKeyframeToAction}
+              >
+                + Add Keyframe
+              </button>
+            </div>
+
+            {actionKeyframes.length > 0 ? (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                {actionKeyframes.map((kf) => {
+                  const isSel = activeKfId === kf.id;
+                  return (
+                    <div
+                      key={kf.id}
+                      role="button"
+                      tabIndex={0}
+                      onClick={() => setActiveKfId(kf.id)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter' || e.key === ' ') {
+                          setActiveKfId(kf.id);
+                        }
+                      }}
+                      style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'space-between',
+                        padding: '3px 6px',
+                        borderRadius: 'var(--radius-sm)',
+                        background: isSel ? 'var(--bg-surface-active, rgba(255,255,255,0.1))' : 'var(--bg-surface)',
+                        border: isSel ? '1px solid var(--accent-cyan)' : '1px solid var(--border-subtle)',
+                        cursor: 'pointer',
+                      }}
+                    >
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                        <span className="keyframe-diamond" aria-hidden="true" style={{ width: 6, height: 6 }} />
+                        <span style={{ fontSize: 'var(--text-xs)', fontWeight: 600 }}>{kf.time.toFixed(2)}s</span>
+                        <span style={{ fontSize: 'var(--text-xs)', color: 'var(--text-secondary)' }}>
+                          {kf.property}: {kf.value}
+                        </span>
+                      </div>
+                      <button
+                        type="button"
+                        aria-label={`Delete keyframe ${kf.id}`}
+                        className="btn-ghost"
+                        style={{ padding: '0 4px', fontSize: '11px', color: 'var(--accent-red)' }}
+                        onClick={(ev) => {
+                          ev.stopPropagation();
+                          handleDeleteKeyframeFromAction(kf.id);
+                        }}
+                      >
+                        ×
+                      </button>
+                    </div>
+                  );
+                })}
+              </div>
+            ) : (
+              <p className="field-hint" style={{ margin: 0, fontSize: '11px' }}>
+                No keyframes on this action yet.
+              </p>
+            )}
+
+            {selectedKeyframe ? (
+              <div
+                aria-label="Keyframe Inspector"
+                style={{
+                  marginTop: 4,
+                  padding: 8,
+                  borderRadius: 'var(--radius-sm)',
+                  background: 'var(--bg-surface)',
+                  border: '1px solid var(--border-strong)',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: 6,
+                }}
+              >
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <strong style={{ fontSize: 'var(--text-xs)' }}>Edit Keyframe</strong>
+                  <button
+                    type="button"
+                    className="btn-danger"
+                    aria-label="Delete Keyframe"
+                    style={{ fontSize: '11px', padding: '1px 6px' }}
+                    onClick={() => handleDeleteKeyframeFromAction(selectedKeyframe.id)}
+                  >
+                    Delete Keyframe
+                  </button>
+                </div>
+
+                <div className="dialog-two-col">
+                  <div className="field">
+                    <label htmlFor="cue-kf-time">Time (s)</label>
+                    <NumericInput
+                      id="cue-kf-time"
+                      aria-label="Keyframe Time"
+                      min={0}
+                      max={action.duration}
+                      step={0.05}
+                      value={selectedKeyframe.time}
+                      onCommit={(val) => handleUpdateKeyframe(selectedKeyframe.id, { time: val })}
+                    />
+                  </div>
+
+                  <div className="field">
+                    <label htmlFor="cue-kf-property">Property</label>
+                    <select
+                      id="cue-kf-property"
+                      aria-label="Keyframe Property"
+                      value={selectedKeyframe.property}
+                      onChange={(ev) =>
+                        handleUpdateKeyframe(selectedKeyframe.id, { property: ev.target.value })
+                      }
+                    >
+                      <option value="positionX">Position X</option>
+                      <option value="positionY">Position Y</option>
+                      <option value="scale">Scale</option>
+                      <option value="rotation">Rotation</option>
+                      <option value="opacity">Opacity</option>
+                    </select>
+                  </div>
+                </div>
+
+                <div className="dialog-two-col">
+                  <div className="field">
+                    <label htmlFor="cue-kf-val">Value</label>
+                    <NumericInput
+                      id="cue-kf-val"
+                      aria-label="Keyframe Value"
+                      step={
+                        selectedKeyframe.property === 'opacity' || selectedKeyframe.property === 'scale'
+                          ? 0.05
+                          : 1
+                      }
+                      value={selectedKeyframe.value}
+                      onCommit={(val) => handleUpdateKeyframe(selectedKeyframe.id, { value: val })}
+                    />
+                  </div>
+
+                  <div className="field">
+                    <label htmlFor="cue-kf-easing">Easing</label>
+                    <select
+                      id="cue-kf-easing"
+                      aria-label="Keyframe Easing"
+                      value={selectedKeyframe.easing ?? 'ease-in-out'}
+                      onChange={(ev) =>
+                        handleUpdateKeyframe(selectedKeyframe.id, {
+                          easing: ev.target.value as KeyframeEasing,
+                        })
+                      }
+                    >
+                      <option value="linear">linear</option>
+                      <option value="ease-in">ease-in</option>
+                      <option value="ease-out">ease-out</option>
+                      <option value="ease-in-out">ease-in-out</option>
+                    </select>
+                  </div>
+                </div>
+              </div>
+            ) : null}
+          </div>
         </section>
       );
     }
@@ -429,7 +740,7 @@ export function CueInspector() {
       const cam = cueScene?.timeline.cameraMoves[selection.index];
       if (!cueScene || !cam) return null;
 
-      const updateCam = (patch: Partial<CameraMovement>) => {
+      const updateCam = (patch: Partial<CameraMovement> & Record<string, unknown>) => {
         updateScene(cueScene.id, (scene) => ({
           ...scene,
           timeline: {
@@ -450,6 +761,37 @@ export function CueInspector() {
           },
         }));
         setSelection({ kind: 'scene', id: cueScene.id });
+      };
+
+      const rawCamKfs = (cam as CameraMovement & { keyframes?: KeyframeItem[] }).keyframes;
+      const camKeyframes: KeyframeItem[] = Array.isArray(rawCamKfs) ? rawCamKfs : [];
+      const selectedCamKf = camKeyframes.find((k) => k.id === activeKfId) ?? null;
+
+      const handleAddCameraKeyframe = () => {
+        const offset = Math.max(0, Math.min(cam.duration, playheadTime));
+        const newKf: KeyframeItem = {
+          id: `kf_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+          time: Number(offset.toFixed(2)),
+          property: 'zoom',
+          value: cam.startZoom,
+          easing: 'ease-in-out',
+        };
+        const nextKfs = [...camKeyframes, newKf].sort((a, b) => a.time - b.time);
+        updateCam({ keyframes: nextKfs });
+        setActiveKfId(newKf.id);
+      };
+
+      const handleUpdateCamKeyframe = (kfId: string, patch: Partial<KeyframeItem>) => {
+        const nextKfs = camKeyframes.map((k) => (k.id === kfId ? { ...k, ...patch } : k));
+        updateCam({ keyframes: nextKfs });
+      };
+
+      const handleDeleteCamKeyframe = (kfId: string) => {
+        const nextKfs = camKeyframes.filter((k) => k.id !== kfId);
+        updateCam({ keyframes: nextKfs });
+        if (activeKfId === kfId) {
+          setActiveKfId(null);
+        }
       };
 
       return (
@@ -586,6 +928,176 @@ export function CueInspector() {
               />
             </div>
           </div>
+
+          {/* Keyframe Inspector for Camera */}
+          <div
+            style={{
+              borderTop: '1px solid var(--border-subtle)',
+              paddingTop: 6,
+              display: 'flex',
+              flexDirection: 'column',
+              gap: 6,
+            }}
+          >
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <span style={{ fontSize: 'var(--text-xs)', fontWeight: 600 }}>
+                Camera Keyframes ({camKeyframes.length})
+              </span>
+              <button
+                type="button"
+                className="btn-ghost"
+                style={{ fontSize: '11px', padding: '2px 6px' }}
+                onClick={handleAddCameraKeyframe}
+              >
+                + Add Keyframe
+              </button>
+            </div>
+
+            {camKeyframes.length > 0 ? (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                {camKeyframes.map((kf) => {
+                  const isSel = activeKfId === kf.id;
+                  return (
+                    <div
+                      key={kf.id}
+                      role="button"
+                      tabIndex={0}
+                      onClick={() => setActiveKfId(kf.id)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter' || e.key === ' ') {
+                          setActiveKfId(kf.id);
+                        }
+                      }}
+                      style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'space-between',
+                        padding: '3px 6px',
+                        borderRadius: 'var(--radius-sm)',
+                        background: isSel ? 'var(--bg-surface-active, rgba(255,255,255,0.1))' : 'var(--bg-surface)',
+                        border: isSel ? '1px solid var(--accent-cyan)' : '1px solid var(--border-subtle)',
+                        cursor: 'pointer',
+                      }}
+                    >
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                        <span className="keyframe-diamond" aria-hidden="true" style={{ width: 6, height: 6 }} />
+                        <span style={{ fontSize: 'var(--text-xs)', fontWeight: 600 }}>{kf.time.toFixed(2)}s</span>
+                        <span style={{ fontSize: 'var(--text-xs)', color: 'var(--text-secondary)' }}>
+                          {kf.property}: {kf.value}
+                        </span>
+                      </div>
+                      <button
+                        type="button"
+                        aria-label={`Delete camera keyframe ${kf.id}`}
+                        className="btn-ghost"
+                        style={{ padding: '0 4px', fontSize: '11px', color: 'var(--accent-red)' }}
+                        onClick={(ev) => {
+                          ev.stopPropagation();
+                          handleDeleteCamKeyframe(kf.id);
+                        }}
+                      >
+                        ×
+                      </button>
+                    </div>
+                  );
+                })}
+              </div>
+            ) : null}
+
+            {selectedCamKf ? (
+              <div
+                aria-label="Camera Keyframe Inspector"
+                style={{
+                  marginTop: 4,
+                  padding: 8,
+                  borderRadius: 'var(--radius-sm)',
+                  background: 'var(--bg-surface)',
+                  border: '1px solid var(--border-strong)',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: 6,
+                }}
+              >
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <strong style={{ fontSize: 'var(--text-xs)' }}>Edit Camera Keyframe</strong>
+                  <button
+                    type="button"
+                    className="btn-danger"
+                    aria-label="Delete Camera Keyframe"
+                    style={{ fontSize: '11px', padding: '1px 6px' }}
+                    onClick={() => handleDeleteCamKeyframe(selectedCamKf.id)}
+                  >
+                    Delete Keyframe
+                  </button>
+                </div>
+
+                <div className="dialog-two-col">
+                  <div className="field">
+                    <label htmlFor="cue-cam-kf-time">Time (s)</label>
+                    <NumericInput
+                      id="cue-cam-kf-time"
+                      aria-label="Camera Keyframe Time"
+                      min={0}
+                      max={cam.duration}
+                      step={0.05}
+                      value={selectedCamKf.time}
+                      onCommit={(val) => handleUpdateCamKeyframe(selectedCamKf.id, { time: val })}
+                    />
+                  </div>
+
+                  <div className="field">
+                    <label htmlFor="cue-cam-kf-property">Property</label>
+                    <select
+                      id="cue-cam-kf-property"
+                      aria-label="Camera Keyframe Property"
+                      value={selectedCamKf.property}
+                      onChange={(ev) =>
+                        handleUpdateCamKeyframe(selectedCamKf.id, { property: ev.target.value })
+                      }
+                    >
+                      <option value="zoom">Zoom</option>
+                      <option value="startX">Start X</option>
+                      <option value="startY">Start Y</option>
+                      <option value="endX">End X</option>
+                      <option value="endY">End Y</option>
+                    </select>
+                  </div>
+                </div>
+
+                <div className="dialog-two-col">
+                  <div className="field">
+                    <label htmlFor="cue-cam-kf-val">Value</label>
+                    <NumericInput
+                      id="cue-cam-kf-val"
+                      aria-label="Camera Keyframe Value"
+                      step={selectedCamKf.property === 'zoom' ? 0.05 : 5}
+                      value={selectedCamKf.value}
+                      onCommit={(val) => handleUpdateCamKeyframe(selectedCamKf.id, { value: val })}
+                    />
+                  </div>
+
+                  <div className="field">
+                    <label htmlFor="cue-cam-kf-easing">Easing</label>
+                    <select
+                      id="cue-cam-kf-easing"
+                      aria-label="Camera Keyframe Easing"
+                      value={selectedCamKf.easing ?? 'ease-in-out'}
+                      onChange={(ev) =>
+                        handleUpdateCamKeyframe(selectedCamKf.id, {
+                          easing: ev.target.value as KeyframeEasing,
+                        })
+                      }
+                    >
+                      <option value="linear">linear</option>
+                      <option value="ease-in">ease-in</option>
+                      <option value="ease-out">ease-out</option>
+                      <option value="ease-in-out">ease-in-out</option>
+                    </select>
+                  </div>
+                </div>
+              </div>
+            ) : null}
+          </div>
         </section>
       );
     }
@@ -708,9 +1220,9 @@ export function CueInspector() {
   };
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0 }}>
-      <div className="studio-pane-scroll">
-        <h3 style={{ fontSize: 'var(--text-sm)', fontWeight: 600 }}>Scene Details</h3>
+    <div className="studio-pane-scroll" style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 8, padding: 10 }}>
+        <h3 style={{ fontSize: 'var(--text-sm)', fontWeight: 600 }}>Scene Properties</h3>
 
         <div className="field">
           <label htmlFor={titleId}>Scene Title</label>
@@ -718,9 +1230,7 @@ export function CueInspector() {
             id={titleId}
             type="text"
             value={activeScene.title}
-            onChange={(ev) =>
-              updateScene(activeScene.id, (scene) => ({ ...scene, title: ev.target.value }))
-            }
+            onChange={(ev) => updateScene(activeScene.id, (s) => ({ ...s, title: ev.target.value }))}
           />
         </div>
 
@@ -728,9 +1238,10 @@ export function CueInspector() {
           <label htmlFor={descId}>Description</label>
           <textarea
             id={descId}
+            rows={2}
             value={activeScene.description}
             onChange={(ev) =>
-              updateScene(activeScene.id, (scene) => ({ ...scene, description: ev.target.value }))
+              updateScene(activeScene.id, (s) => ({ ...s, description: ev.target.value }))
             }
           />
         </div>
@@ -740,14 +1251,14 @@ export function CueInspector() {
           <NumericInput
             id={durationId}
             min={0.5}
-            step={0.5}
+            step={0.25}
             strictPositive
             value={activeScene.duration}
             onCommit={(val) =>
-              updateScene(activeScene.id, (scene) => ({
-                ...scene,
+              updateScene(activeScene.id, (s) => ({
+                ...s,
                 duration: val,
-                timeline: { ...scene.timeline, duration: val },
+                timeline: { ...s.timeline, duration: val },
               }))
             }
           />
@@ -760,9 +1271,9 @@ export function CueInspector() {
               id={transTypeId}
               value={activeScene.transition.type}
               onChange={(ev) =>
-                updateScene(activeScene.id, (scene) => ({
-                  ...scene,
-                  transition: { ...scene.transition, type: ev.target.value as TransitionType },
+                updateScene(activeScene.id, (s) => ({
+                  ...s,
+                  transition: { ...s.transition, type: ev.target.value as TransitionType },
                 }))
               }
             >
@@ -779,12 +1290,13 @@ export function CueInspector() {
             <NumericInput
               id={transDurId}
               min={0}
+              max={2}
               step={0.1}
               value={activeScene.transition.duration}
               onCommit={(val) =>
-                updateScene(activeScene.id, (scene) => ({
-                  ...scene,
-                  transition: { ...scene.transition, duration: val },
+                updateScene(activeScene.id, (s) => ({
+                  ...s,
+                  transition: { ...s.transition, duration: val },
                 }))
               }
             />
@@ -867,7 +1379,7 @@ export function CueInspector() {
             <label htmlFor={charSelectId}>Character</label>
             <select
               id={charSelectId}
-              value={newActionCharId}
+              value={effectiveCharId}
               onChange={(ev) => setNewActionCharId(ev.target.value)}
             >
               {draftProject.characters.length > 0 ? (

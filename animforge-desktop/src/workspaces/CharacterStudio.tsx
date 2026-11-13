@@ -239,24 +239,34 @@ export function CharacterStudio() {
 
   const headingId = useId();
 
-  // Character & Part Selection
+  // Character, Part, Bone & Context Selection
   const [selectedCharId, setSelectedCharId] = useState<string | null>(null);
   const [selectedPartId, setSelectedPartId] = useState<string | null>(null);
   const [selectedBoneId, setSelectedBoneId] = useState<string | null>(null);
+  const [selectedIKName, setSelectedIKName] = useState<string | null>(null);
+  const [inspectorMode, setInspectorMode] = useState<'character' | 'bone' | 'part' | 'ik'>('character');
+
+  // Primary Editing Modes & Left Panel Tabs
+  const [editMode, setEditMode] = useState<'design' | 'rig' | 'animate'>('design');
+  const [leftTab, setLeftTab] = useState<'characters' | 'layers'>('layers');
   const [searchQuery, setSearchQuery] = useState('');
+  const [layersSearch, setLayersSearch] = useState('');
   const [charToDelete, setCharToDelete] = useState<CharacterItem | null>(null);
+  const [isRigCollapsed, setIsRigCollapsed] = useState(false);
+  const [hiddenParts, setHiddenParts] = useState<Record<string, boolean>>({});
+  const [lockedParts, setLockedParts] = useState<Record<string, boolean>>({});
 
   // Viewport & Canvas Controls
-  const [viewMode, setViewMode] = useState<'rig' | 'parts'>('rig');
+  const [activeTool, setActiveTool] = useState<'select' | 'move' | 'rotate' | 'scale' | 'bone'>('select');
   const [zoom, setZoom] = useState(1.0);
   const [pan, setPan] = useState({ x: 0, y: 0 });
   const [isPanning, setIsPanning] = useState(false);
   const [startPan, setStartPan] = useState({ x: 0, y: 0 });
-  const [showCheckerboard, setShowCheckerboard] = useState(true);
-  const [showBones, setShowBones] = useState(true);
-  const [showMeshes, setShowMeshes] = useState(true);
+  const [showCheckerboard, setShowCheckerboard] = useState(false); // Subtle grid by default
+  const [showBones, setShowBones] = useState(false); // Mode-aware: hidden in design mode by default
+  const [showMeshes, setShowMeshes] = useState(false);
   const [showParts, setShowParts] = useState(true);
-  const [showIK, setShowIK] = useState(true);
+  const [showIK, setShowIK] = useState(false);
 
   // Animation & Timeline Controls
   const [isPlaying, setIsPlaying] = useState(false);
@@ -265,10 +275,7 @@ export function CharacterStudio() {
   const [activeClipName, setActiveClipName] = useState<string>('idle');
   const [motionIntensity, setMotionIntensity] = useState(1.0);
   const [motionDuration, setMotionDuration] = useState(2.0);
-
-  // Auto-Rig Artwork Dialog
-  const [isAutoRigOpen, setIsAutoRigOpen] = useState(false);
-  const [autoRigArtName, setAutoRigArtName] = useState('CyberHero');
+  const [isTimelineCollapsed, setIsTimelineCollapsed] = useState(false);
 
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const svgRef = useRef<SVGSVGElement | null>(null);
@@ -363,6 +370,12 @@ export function CharacterStudio() {
     return [...selectedChar.parts].sort((a, b) => a.zIndex - b.zIndex);
   }, [selectedChar]);
 
+  const filteredParts = useMemo(() => {
+    const q = layersSearch.trim().toLowerCase();
+    if (!q) return sortedParts;
+    return sortedParts.filter((p) => p.name.toLowerCase().includes(q) || p.layerName.toLowerCase().includes(q));
+  }, [sortedParts, layersSearch]);
+
   const selectedPart = useMemo(
     () =>
       selectedChar?.parts.find((p) => p.id === selectedPartId) ??
@@ -374,14 +387,41 @@ export function CharacterStudio() {
   const selectedBone = useMemo(
     () =>
       activeSkeleton.bones.find((b) => b.id === selectedBoneId) ??
-      activeSkeleton.bones[1] ?? // default to hip
+      activeSkeleton.bones[1] ??
       activeSkeleton.bones[0] ??
       null,
     [activeSkeleton, selectedBoneId]
   );
 
+  const selectedIK = useMemo(() => {
+    return activeSkeleton.ik.find((k) => k.name === selectedIKName) ?? activeSkeleton.ik[0] ?? null;
+  }, [activeSkeleton.ik, selectedIKName]);
+
   const scenes = draftProject?.scenes ?? [];
   const activeScene = scenes.find((s) => s.id === selectedSceneId) ?? scenes[0] ?? null;
+
+  // Mode switching behavior: adjustments to visible tools and overlays
+  const handleSetMode = (mode: 'design' | 'rig' | 'animate') => {
+    setEditMode(mode);
+    if (mode === 'design') {
+      setShowBones(false);
+      setShowIK(false);
+      setShowParts(true);
+      if (inspectorMode === 'bone' || inspectorMode === 'ik') {
+        setInspectorMode(selectedPart ? 'part' : 'character');
+      }
+    } else if (mode === 'rig') {
+      setShowBones(true);
+      setShowIK(true);
+      setShowParts(true);
+      setInspectorMode('bone');
+    } else if (mode === 'animate') {
+      setShowBones(false);
+      setShowIK(false);
+      setShowParts(true);
+      setIsTimelineCollapsed(false);
+    }
+  };
 
   // Animation playback loop
   useEffect(() => {
@@ -431,7 +471,6 @@ export function CharacterStudio() {
       tipY: number;
     }> = [];
 
-    // Helper: interpolate keyframe channel
     const evalRot = (boneName: string, baseRot: number) => {
       const chan = clip.bones?.[boneName]?.rotate;
       if (!chan || !chan.length) return baseRot;
@@ -501,6 +540,63 @@ export function CharacterStudio() {
     return results;
   }, [activeSkeleton, activeClip, currentTime]);
 
+  // Compute character bounding box for auto-framing
+  const characterBounds = useMemo(() => {
+    let minX = Infinity;
+    let maxX = -Infinity;
+    let minY = Infinity;
+    let maxY = -Infinity;
+
+    if (evaluatedBones.length > 0) {
+      for (const eb of evaluatedBones) {
+        minX = Math.min(minX, eb.worldX, eb.tipX);
+        maxX = Math.max(maxX, eb.worldX, eb.tipX);
+        minY = Math.min(minY, eb.worldY, eb.tipY);
+        maxY = Math.max(maxY, eb.worldY, eb.tipY);
+      }
+    }
+
+    if (selectedChar?.parts.length) {
+      for (const p of selectedChar.parts) {
+        minX = Math.min(minX, p.pivot.x - 30);
+        maxX = Math.max(maxX, p.pivot.x + 30);
+        minY = Math.min(minY, p.pivot.y - 30);
+        maxY = Math.max(maxY, p.pivot.y + 30);
+      }
+    }
+
+    if (!Number.isFinite(minX)) {
+      return { minX: 100, maxX: 300, minY: 100, maxY: 400, cx: 200, cy: 250, width: 200, height: 300 };
+    }
+
+    const cx = (minX + maxX) / 2;
+    const cy = (minY + maxY) / 2;
+    const width = Math.max(100, maxX - minX);
+    const height = Math.max(160, maxY - minY);
+
+    return { minX, maxX, minY, maxY, cx, cy, width, height };
+  }, [evaluatedBones, selectedChar]);
+
+  // "Fit to Character" framing function
+  const handleFitToCharacter = useCallback(() => {
+    const canvas = canvasRef.current;
+    const cw = canvas ? canvas.width : 800;
+    const ch = canvas ? canvas.height : 600;
+    const bounds = characterBounds;
+
+    const scaleX = (cw * 0.72) / bounds.width;
+    const scaleY = (ch * 0.72) / bounds.height;
+    const optimalZoom = clamp(Math.min(scaleX, scaleY), 0.6, 2.4);
+
+    setZoom(Number(optimalZoom.toFixed(2)));
+    setPan({ x: 0, y: 0 });
+  }, [characterBounds]);
+
+  // Auto-frame on character switch
+  useEffect(() => {
+    handleFitToCharacter();
+  }, [selectedCharId, handleFitToCharacter]);
+
   // Canvas Viewport Rendering
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -513,29 +609,100 @@ export function CharacterStudio() {
     ctx.clearRect(0, 0, width, height);
 
     ctx.save();
-    // Apply pan & zoom
+    // Center viewport at character bounding center
     ctx.translate(width / 2 + pan.x, height / 2 + pan.y);
     ctx.scale(zoom, zoom);
-    ctx.translate(-200, -250); // Center around standard character rig origin
+    ctx.translate(-characterBounds.cx, -characterBounds.cy);
 
-    // 1. Checkerboard Background
+    // 1. Sleek Non-Dominant Background & Floor Shadow
     if (showCheckerboard) {
-      const size = 16;
-      ctx.fillStyle = '#1c1e22';
-      ctx.fillRect(-200, -200, 800, 900);
-      ctx.fillStyle = '#22252b';
-      for (let y = -200; y < 700; y += size) {
-        for (let x = -200; x < 600; x += size) {
-          if (((x / size) + (y / size)) % 2 === 0) {
-            ctx.fillRect(x, y, size, size);
+      const size = 32;
+      ctx.strokeStyle = 'rgba(255, 255, 255, 0.04)';
+      ctx.lineWidth = 1;
+      const startX = Math.floor((characterBounds.cx - 500) / size) * size;
+      const endX = characterBounds.cx + 500;
+      const startY = Math.floor((characterBounds.cy - 500) / size) * size;
+      const endY = characterBounds.cy + 500;
+
+      ctx.beginPath();
+      for (let x = startX; x <= endX; x += size) {
+        ctx.moveTo(x, startY);
+        ctx.lineTo(x, endY);
+      }
+      for (let y = startY; y <= endY; y += size) {
+        ctx.moveTo(startX, y);
+        ctx.lineTo(endX, y);
+      }
+      ctx.stroke();
+    }
+
+    // Floor Contact Shadow
+    ctx.fillStyle = 'rgba(0, 0, 0, 0.35)';
+    ctx.beginPath();
+    if (typeof ctx.ellipse === 'function') {
+      ctx.ellipse(characterBounds.cx, characterBounds.maxY + 8, characterBounds.width * 0.45, 8, 0, 0, Math.PI * 2);
+    } else {
+      ctx.arc(characterBounds.cx, characterBounds.maxY + 8, Math.min(24, characterBounds.width * 0.45), 0, Math.PI * 2);
+    }
+    ctx.fill();
+
+    // 2. Character Artwork & Stylized Silhouette Shapes
+    if (showParts && selectedChar && selectedChar.parts.length > 0) {
+      const primaryColor = selectedChar.colorPalette[0] ? toSafeColorInput(selectedChar.colorPalette[0]) : '#f59e0b';
+      const secondaryColor = selectedChar.colorPalette[1] ? toSafeColorInput(selectedChar.colorPalette[1]) : '#38bdf8';
+
+      // Render connected anatomical parts
+      for (const part of sortedParts) {
+        if (hiddenParts[part.id]) continue;
+
+        const isPartActive = inspectorMode === 'part' && part.id === selectedPart?.id;
+        const pv = part.pivot;
+
+        ctx.save();
+        ctx.fillStyle = isPartActive ? 'rgba(245, 158, 11, 0.35)' : 'rgba(245, 158, 11, 0.18)';
+        ctx.strokeStyle = isPartActive ? '#fbbf24' : primaryColor;
+        ctx.lineWidth = isPartActive ? 2.5 : 1.5;
+
+        // Draw stylized limb or joint capsules
+        if (part.parentPartId) {
+          const parent = selectedChar.parts.find((p) => p.id === part.parentPartId);
+          if (parent) {
+            ctx.beginPath();
+            ctx.moveTo(parent.pivot.x, parent.pivot.y);
+            ctx.lineTo(pv.x, pv.y);
+            ctx.lineWidth = isPartActive ? 14 : 10;
+            ctx.lineCap = 'round';
+            ctx.strokeStyle = isPartActive ? 'rgba(251, 191, 36, 0.4)' : 'rgba(245, 158, 11, 0.2)';
+            ctx.stroke();
           }
         }
+
+        // Part pivot badge
+        ctx.lineWidth = isPartActive ? 2 : 1;
+        ctx.strokeStyle = isPartActive ? '#fbbf24' : primaryColor;
+        ctx.beginPath();
+        ctx.arc(pv.x, pv.y, isPartActive ? 16 : 12, 0, Math.PI * 2);
+        ctx.fillStyle = isPartActive ? 'rgba(245, 158, 11, 0.45)' : 'rgba(245, 158, 11, 0.2)';
+        ctx.fill();
+        ctx.stroke();
+
+        // Small inner pivot dot
+        ctx.beginPath();
+        ctx.arc(pv.x, pv.y, 3, 0, Math.PI * 2);
+        ctx.fillStyle = '#ffffff';
+        ctx.fill();
+
+        // Part label
+        ctx.fillStyle = '#cbd5e1';
+        ctx.font = '10px sans-serif';
+        ctx.fillText(part.name, pv.x - 14, pv.y - 18);
+        ctx.restore();
       }
     }
 
-    // 2. Delaunay Mesh Wireframes
+    // 3. Delaunay Mesh Wireframes (Technical Overlay)
     if (showMeshes) {
-      ctx.strokeStyle = 'rgba(56, 189, 248, 0.35)';
+      ctx.strokeStyle = 'rgba(56, 189, 248, 0.4)';
       ctx.lineWidth = 1;
       const meshBones = evaluatedBones.filter((eb) => eb.bone.length > 20);
       for (let i = 0; i < meshBones.length - 1; i++) {
@@ -550,33 +717,14 @@ export function CharacterStudio() {
       }
     }
 
-    // 3. Body Parts Outlines
-    if (showParts && selectedChar) {
-      for (const part of selectedChar.parts) {
-        const pv = part.pivot;
-        ctx.fillStyle = 'rgba(245, 158, 11, 0.15)';
-        ctx.strokeStyle = part.id === selectedPart?.id ? '#f59e0b' : 'rgba(245, 158, 11, 0.45)';
-        ctx.lineWidth = part.id === selectedPart?.id ? 2 : 1;
-        ctx.beginPath();
-        ctx.arc(pv.x, pv.y, 24, 0, Math.PI * 2);
-        ctx.fill();
-        ctx.stroke();
-
-        ctx.fillStyle = '#e2e8f0';
-        ctx.font = '10px monospace';
-        ctx.fillText(part.name, pv.x - 16, pv.y - 28);
-      }
-    }
-
-    // 4. Rigby2D Tapered Bones & Joints
+    // 4. Rigby2D Tapered Bones & Joints (Visible in Rig Mode or when Toggled)
     if (showBones) {
       for (const eb of evaluatedBones) {
-        const isSelected = eb.bone.id === selectedBone?.id;
+        const isSelected = inspectorMode === 'bone' && eb.bone.id === selectedBone?.id;
         const color = eb.bone.color || '#f59e0b';
         const length = eb.bone.length;
 
         if (length > 0) {
-          // Draw tapered bone shape
           const angle = (eb.rotation * Math.PI) / 180;
           const normalAngle = angle + Math.PI / 2;
           const w = Math.min(10, Math.max(4, length * 0.15));
@@ -600,7 +748,7 @@ export function CharacterStudio() {
           ctx.lineTo(rightX, rightY);
           ctx.closePath();
 
-          ctx.fillStyle = isSelected ? 'rgba(245, 158, 11, 0.45)' : 'rgba(229, 161, 88, 0.2)';
+          ctx.fillStyle = isSelected ? 'rgba(245, 158, 11, 0.55)' : 'rgba(229, 161, 88, 0.25)';
           ctx.fill();
           ctx.strokeStyle = isSelected ? '#fbbf24' : color;
           ctx.lineWidth = isSelected ? 2.5 : 1.5;
@@ -609,7 +757,7 @@ export function CharacterStudio() {
 
         // Draw joint node circle
         ctx.beginPath();
-        ctx.arc(eb.worldX, eb.worldY, isSelected ? 5.5 : 3.5, 0, Math.PI * 2);
+        ctx.arc(eb.worldX, eb.worldY, isSelected ? 6 : 4, 0, Math.PI * 2);
         ctx.fillStyle = isSelected ? '#fbbf24' : color;
         ctx.fill();
         ctx.strokeStyle = '#0f172a';
@@ -618,7 +766,7 @@ export function CharacterStudio() {
       }
     }
 
-    // 5. IK Constraint Lines & Handles
+    // 5. IK Constraint Lines & Target Handles
     if (showIK) {
       for (const ik of activeSkeleton.ik) {
         const parentB = evaluatedBones[ik.bones[0]];
@@ -634,7 +782,6 @@ export function CharacterStudio() {
           ctx.stroke();
           ctx.setLineDash([]);
 
-          // Draw target circle handle
           ctx.beginPath();
           ctx.arc(targetB.worldX, targetB.worldY, 7, 0, Math.PI * 2);
           ctx.strokeStyle = '#f43f5e';
@@ -645,28 +792,43 @@ export function CharacterStudio() {
     }
 
     ctx.restore();
-  }, [evaluatedBones, zoom, pan, showCheckerboard, showBones, showMeshes, showParts, showIK, selectedBone, selectedPart, selectedChar]);
+  }, [
+    evaluatedBones,
+    characterBounds,
+    zoom,
+    pan,
+    showCheckerboard,
+    showBones,
+    showMeshes,
+    showParts,
+    showIK,
+    selectedBone,
+    selectedPart,
+    selectedChar,
+    sortedParts,
+    inspectorMode,
+    hiddenParts,
+  ]);
 
   // Canvas Mouse Controls (Pan & Selection)
   const handleCanvasMouseDown = (ev: React.MouseEvent<HTMLCanvasElement>) => {
-    if (ev.button === 1 || ev.altKey || ev.shiftKey) {
+    if (ev.button === 1 || ev.altKey || ev.shiftKey || activeTool === 'move') {
       setIsPanning(true);
       setStartPan({ x: ev.clientX - pan.x, y: ev.clientY - pan.y });
       return;
     }
 
-    // Hit test joints
     const rect = canvasRef.current?.getBoundingClientRect();
     if (!rect) return;
     const clientX = ev.clientX - rect.left;
     const clientY = ev.clientY - rect.top;
 
-    // Convert click into transformed rig space
-    const rx = (clientX - (rect.width / 2 + pan.x)) / zoom + 200;
-    const ry = (clientY - (rect.height / 2 + pan.y)) / zoom + 250;
+    const rx = (clientX - (rect.width / 2 + pan.x)) / zoom + characterBounds.cx;
+    const ry = (clientY - (rect.height / 2 + pan.y)) / zoom + characterBounds.cy;
 
+    // Hit test bones
     let closestBone: DesktopRigbyBone | null = null;
-    let minDist = 20;
+    let minDist = 24;
 
     for (const eb of evaluatedBones) {
       const d = Math.hypot(eb.worldX - rx, eb.worldY - ry);
@@ -678,7 +840,29 @@ export function CharacterStudio() {
 
     if (closestBone) {
       setSelectedBoneId(closestBone.id);
+      setInspectorMode('bone');
+      return;
     }
+
+    // Hit test parts
+    let closestPart: CharacterPart | null = null;
+    let minPartDist = 24;
+    for (const p of sortedParts) {
+      const d = Math.hypot(p.pivot.x - rx, p.pivot.y - ry);
+      if (d < minPartDist) {
+        minPartDist = d;
+        closestPart = p;
+      }
+    }
+
+    if (closestPart) {
+      setSelectedPartId(closestPart.id);
+      setInspectorMode('part');
+      return;
+    }
+
+    // Clicked background: switch to character properties
+    setInspectorMode('character');
   };
 
   const handleCanvasMouseMove = (ev: React.MouseEvent<HTMLCanvasElement>) => {
@@ -720,6 +904,7 @@ export function CharacterStudio() {
       parts: [...c.parts, newPart],
     }));
     setSelectedPartId(newPart.id);
+    setInspectorMode('part');
     setSelection({ kind: 'part', characterId: selectedChar.id, partId: newPart.id });
   };
 
@@ -732,6 +917,9 @@ export function CharacterStudio() {
     if (selectedPartId === partId) {
       const remaining = selectedChar.parts.filter((p) => p.id !== partId);
       setSelectedPartId(remaining[0]?.id ?? null);
+      if (!remaining.length) {
+        setInspectorMode('character');
+      }
     }
   };
 
@@ -771,6 +959,7 @@ export function CharacterStudio() {
     }));
     setSelectedCharId(nextChar.id);
     setSelectedBoneId(defaultSk.bones[0].id);
+    setInspectorMode('character');
   };
 
   const handleDeleteCharacter = (charId: string) => {
@@ -785,6 +974,7 @@ export function CharacterStudio() {
     if (selectedCharId === charId) {
       const remaining = characters.filter((c) => c.id !== charId);
       setSelectedCharId(remaining[0]?.id ?? null);
+      setInspectorMode('character');
     }
   };
 
@@ -803,6 +993,7 @@ export function CharacterStudio() {
       characters: [...prev.characters, clonedChar],
     }));
     setSelectedCharId(clonedChar.id);
+    setInspectorMode('character');
   };
 
   // Generate Motion Clip
@@ -955,25 +1146,58 @@ export function CharacterStudio() {
   }
 
   return (
-    <section className="page-container" aria-labelledby={headingId} style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-      {/* Top Header Row */}
-      <div className="page-header-row" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 12 }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-          <CharactersIcon size={20} />
-          <h2 id={headingId} style={{ margin: 0 }}>Character Studio</h2>
-          <span className="badge badge-neutral" style={{ backgroundColor: 'var(--color-bg-secondary)', border: '1px solid var(--color-border)', padding: '2px 8px', borderRadius: 4, fontSize: 12 }}>
-            Rigby2D Skeletal Engine
-          </span>
-          <span style={{ fontSize: 11, color: 'var(--color-text-tertiary)', backgroundColor: 'var(--color-bg-secondary)', border: '1px solid var(--color-border)', padding: '2px 6px', borderRadius: 4 }}>
-            StretchyStudio
-          </span>
+    <section className="page-container" aria-labelledby={headingId} style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+      {/* 1. Top Simplified Workflow Toolbar */}
+      <div className="page-header-row" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 10 }}>
+        {/* Left: Brand, Character Selector & Editing Modes */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+            <CharactersIcon size={18} />
+            <h2 id={headingId} style={{ margin: 0, fontSize: 18 }}>Character Studio</h2>
+          </div>
+
+          {selectedChar && (
+            <span style={{ fontSize: 11, fontWeight: 500, color: 'var(--color-text-secondary)', backgroundColor: 'var(--color-bg-secondary)', border: '1px solid var(--color-border)', padding: '2px 8px', borderRadius: 4 }}>
+              Active Character: {selectedChar.name}
+            </span>
+          )}
+
+          {/* Three Simple Modes: Design | Rig | Animate */}
+          <div style={{ display: 'flex', backgroundColor: 'var(--color-bg-tertiary)', borderRadius: 6, padding: 2, border: '1px solid var(--color-border)' }}>
+            <button
+              type="button"
+              className={editMode === 'design' ? 'btn-primary' : 'btn-sm'}
+              style={{ fontSize: 11, padding: '3px 10px', borderRadius: 4 }}
+              onClick={() => handleSetMode('design')}
+            >
+              Design
+            </button>
+            <button
+              type="button"
+              className={editMode === 'rig' ? 'btn-primary' : 'btn-sm'}
+              style={{ fontSize: 11, padding: '3px 10px', borderRadius: 4 }}
+              onClick={() => handleSetMode('rig')}
+            >
+              Rig
+            </button>
+            <button
+              type="button"
+              className={editMode === 'animate' ? 'btn-primary' : 'btn-sm'}
+              style={{ fontSize: 11, padding: '3px 10px', borderRadius: 4 }}
+              onClick={() => handleSetMode('animate')}
+            >
+              Animate
+            </button>
+          </div>
         </div>
 
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+        {/* Right: Primary Workflow Actions: Import -> Rig -> Animate -> Export */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+          {/* Auto-Rig Artwork */}
           <button
             type="button"
             className="btn-primary"
-            style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}
+            style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12, padding: '4px 10px' }}
             onClick={() => imageInputRef.current?.click()}
           >
             <PlusIcon size={14} /> Auto-Rig Artwork
@@ -987,7 +1211,6 @@ export function CharacterStudio() {
             onChange={(ev) => {
               const file = ev.target.files?.[0];
               if (file && selectedChar) {
-                // Auto-rig default skeleton
                 const defaultSk = createDefaultSkeleton();
                 updateCharacter(selectedChar.id, (c) => ({
                   ...c,
@@ -997,10 +1220,43 @@ export function CharacterStudio() {
               }
             }}
           />
-          <button type="button" onClick={handleExportSpine} title="Export to Spine 3.8 JSON">
+
+          {/* Save Changes */}
+          <button
+            type="button"
+            className="btn-primary"
+            style={{ fontSize: 12, padding: '4px 10px' }}
+            onClick={() => saveDraft('Saved character changes')}
+          >
+            Save Changes
+          </button>
+
+          {/* Secondary / Advanced Actions */}
+          <button
+            type="button"
+            className="btn-sm"
+            style={{ fontSize: 11, padding: '4px 8px' }}
+            onClick={handleExportSpine}
+            title="Export to Spine 3.8 JSON"
+          >
             Export Spine JSON
           </button>
-          <button type="button" onClick={() => selectedChar && handleExportCharacterJson(selectedChar)} title="Export AnimForge Character">
+          <button
+            type="button"
+            className="btn-sm"
+            style={{ fontSize: 11, padding: '4px 8px' }}
+            onClick={() => selectedChar && handleDuplicateCharacter(selectedChar)}
+            title="Duplicate selected character"
+          >
+            Duplicate Character
+          </button>
+          <button
+            type="button"
+            className="btn-sm"
+            style={{ fontSize: 11, padding: '4px 8px' }}
+            onClick={() => selectedChar && handleExportCharacterJson(selectedChar)}
+            title="Export AnimForge Character"
+          >
             Export Character
           </button>
           <input
@@ -1022,129 +1278,219 @@ export function CharacterStudio() {
               } catch {}
             }}
           />
-          <button type="button" onClick={() => importInputRef.current?.click()}>
+          <button
+            type="button"
+            className="btn-sm"
+            style={{ fontSize: 11, padding: '4px 8px' }}
+            onClick={() => importInputRef.current?.click()}
+          >
             Import JSON
           </button>
+
+          {/* Engine Badges */}
+          <span className="badge badge-neutral" style={{ backgroundColor: 'var(--color-bg-secondary)', border: '1px solid var(--color-border)', padding: '2px 6px', borderRadius: 4, fontSize: 10 }}>
+            Rigby2D Skeletal Engine
+          </span>
+          <span style={{ fontSize: 10, color: 'var(--color-text-tertiary)', backgroundColor: 'var(--color-bg-secondary)', border: '1px solid var(--color-border)', padding: '2px 6px', borderRadius: 4 }}>
+            StretchyStudio
+          </span>
         </div>
       </div>
 
-      {/* Main Workspace 3-Column Layout */}
-      <div style={{ display: 'grid', gridTemplateColumns: '280px 1fr 320px', gap: 12, minHeight: 520, height: 'calc(100vh - 290px)' }}>
-        {/* Left Column: Cast & Bone Hierarchy Tree */}
-        <div className="panel" style={{ display: 'flex', flexDirection: 'column', gap: 10, padding: 12, overflowY: 'auto' }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <span style={{ fontWeight: 600, fontSize: 13, textTransform: 'uppercase', letterSpacing: 0.5, color: 'var(--color-text-secondary)' }}>
-              Cast ({characters.length})
-            </span>
+      {/* 2. Main 3-Panel Layout (Left Panel: Character & Layers | Center: Viewport | Right: Contextual Inspector) */}
+      <div style={{ display: 'grid', gridTemplateColumns: '270px 1fr 310px', gap: 10, minHeight: 480, height: 'calc(100vh - 280px)' }}>
+        {/* Left Panel: Character & Layers */}
+        <div className="panel" style={{ display: 'flex', flexDirection: 'column', gap: 8, padding: 10, overflowY: 'auto' }}>
+          {/* Two Tabs: Characters and Layers */}
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid var(--color-border)', paddingBottom: 6, gap: 4 }}>
+            <div style={{ display: 'flex', gap: 4 }}>
+              <button
+                type="button"
+                className={leftTab === 'characters' ? 'btn-primary' : 'btn-sm'}
+                style={{ fontSize: 11, padding: '4px 8px' }}
+                onClick={() => setLeftTab('characters')}
+              >
+                Characters ({characters.length})
+              </button>
+              <button
+                type="button"
+                className={leftTab === 'layers' ? 'btn-primary' : 'btn-sm'}
+                style={{ fontSize: 11, padding: '4px 8px' }}
+                onClick={() => setLeftTab('layers')}
+              >
+                Layers ({sortedParts.length})
+              </button>
+            </div>
             <button
               type="button"
               className="btn-sm"
               aria-label="Add Character"
               onClick={handleAddCharacter}
-              style={{ display: 'inline-flex', alignItems: 'center', gap: 4, padding: '2px 8px', fontSize: 12 }}
+              style={{ display: 'inline-flex', alignItems: 'center', gap: 4, padding: '3px 8px', fontSize: 11 }}
             >
               <PlusIcon size={12} /> Add Character
             </button>
           </div>
 
-          <div style={{ position: 'relative' }}>
-            <span style={{ position: 'absolute', left: 8, top: 9, color: 'var(--color-text-tertiary)', pointerEvents: 'none' }}>
-              <SearchIcon size={14} />
-            </span>
-            <input
-              type="text"
-              aria-label="Search cast"
-              placeholder="Search cast..."
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              style={{ width: '100%', paddingLeft: 28, fontSize: 12, height: 32 }}
-            />
-          </div>
+          {/* Tab 1: Characters List (Visible when leftTab === 'characters', kept in DOM for accessibility & test state) */}
+          <div style={{ display: leftTab === 'characters' ? 'flex' : 'none', flexDirection: 'column', gap: 8, flex: 1 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <span style={{ fontWeight: 600, fontSize: 12, textTransform: 'uppercase', color: 'var(--color-text-secondary)' }}>
+                Cast ({characters.length})
+              </span>
+            </div>
 
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 4, maxHeight: 130, overflowY: 'auto' }}>
-            {filteredCharacters.map((char) => (
-              <div
-                key={char.id}
-                role="button"
-                tabIndex={0}
-                onClick={() => setSelectedCharId(char.id)}
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'space-between',
-                  padding: '6px 8px',
-                  borderRadius: 4,
-                  cursor: 'pointer',
-                  backgroundColor: char.id === selectedCharId ? 'var(--color-bg-tertiary)' : 'transparent',
-                  border: char.id === selectedCharId ? '1px solid var(--color-accent)' : '1px solid transparent',
-                }}
-              >
-                <div style={{ display: 'flex', alignItems: 'center', gap: 6, overflow: 'hidden' }}>
-                  <div style={{ width: 8, height: 8, borderRadius: '50%', backgroundColor: char.colorPalette[0] || '#f59e0b' }} />
-                  <span style={{ fontSize: 13, fontWeight: char.id === selectedCharId ? 600 : 400, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                    {char.name}
-                  </span>
+            <div style={{ position: 'relative' }}>
+              <span style={{ position: 'absolute', left: 8, top: 8, color: 'var(--color-text-tertiary)', pointerEvents: 'none' }}>
+                <SearchIcon size={14} />
+              </span>
+              <input
+                type="text"
+                aria-label="Search cast"
+                placeholder="Search cast..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                style={{ width: '100%', paddingLeft: 28, fontSize: 12, height: 30 }}
+              />
+            </div>
+
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 3, overflowY: 'auto', flex: 1 }}>
+              {filteredCharacters.map((char) => (
+                <div
+                  key={char.id}
+                  role="button"
+                  tabIndex={0}
+                  onClick={() => {
+                    setSelectedCharId(char.id);
+                    setInspectorMode('character');
+                  }}
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    padding: '6px 8px',
+                    borderRadius: 4,
+                    cursor: 'pointer',
+                    backgroundColor: char.id === selectedCharId ? 'var(--color-bg-tertiary)' : 'transparent',
+                    border: char.id === selectedCharId ? '1px solid var(--color-accent)' : '1px solid transparent',
+                  }}
+                >
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, overflow: 'hidden' }}>
+                    <div style={{ width: 10, height: 10, borderRadius: '50%', backgroundColor: char.colorPalette[0] || '#f59e0b', flexShrink: 0 }} />
+                    <span style={{ fontSize: 12, fontWeight: char.id === selectedCharId ? 600 : 400, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                      {char.name}
+                    </span>
+                  </div>
+                  <div style={{ display: 'flex', gap: 2 }}>
+                    <button
+                      type="button"
+                      title="Duplicate character"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleDuplicateCharacter(char);
+                      }}
+                      style={{ background: 'none', border: 'none', padding: 3, cursor: 'pointer', color: 'var(--color-text-tertiary)' }}
+                    >
+                      <CopyIcon size={12} />
+                    </button>
+                    <button
+                      type="button"
+                      title="Delete character"
+                      aria-label={`Delete ${char.name}`}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setCharToDelete(char);
+                      }}
+                      style={{ background: 'none', border: 'none', padding: 3, cursor: 'pointer', color: '#ef4444' }}
+                    >
+                      <TrashIcon size={12} />
+                    </button>
+                  </div>
                 </div>
-                <div style={{ display: 'flex', gap: 4 }}>
-                  <button
-                    type="button"
-                    title="Duplicate character"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      handleDuplicateCharacter(char);
-                    }}
-                    style={{ background: 'none', border: 'none', padding: 2, cursor: 'pointer', color: 'var(--color-text-tertiary)' }}
-                  >
-                    <CopyIcon size={12} />
-                  </button>
-                  <button
-                    type="button"
-                    title="Delete character"
-                    aria-label={`Delete ${char.name}`}
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      setCharToDelete(char);
-                    }}
-                    style={{ background: 'none', border: 'none', padding: 2, cursor: 'pointer', color: '#ef4444' }}
-                  >
-                    <TrashIcon size={12} />
-                  </button>
-                </div>
-              </div>
-            ))}
+              ))}
+            </div>
           </div>
 
-          <div style={{ borderTop: '1px solid var(--color-border)', margin: '4px 0' }} />
-
-          {/* Sub-Tabs: Skeleton Tree vs Parts */}
-          <div style={{ display: 'flex', gap: 4 }}>
-            <button
-              type="button"
-              className={viewMode === 'rig' ? 'btn-primary' : 'btn-sm'}
-              style={{ flex: 1, fontSize: 11, padding: '4px 6px' }}
-              onClick={() => setViewMode('rig')}
-            >
-              Skeleton ({activeSkeleton.bones.length})
-            </button>
-            <button
-              type="button"
-              className={viewMode === 'parts' ? 'btn-primary' : 'btn-sm'}
-              style={{ flex: 1, fontSize: 11, padding: '4px 6px' }}
-              onClick={() => setViewMode('parts')}
-            >
-              Parts ({sortedParts.length})
-            </button>
-          </div>
-
-          {/* Bone Hierarchy Tree */}
-          {viewMode === 'rig' ? (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 2, overflowY: 'auto', flex: 1 }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
-                <span style={{ fontSize: 11, color: 'var(--color-text-secondary)', textTransform: 'uppercase' }}>Hierarchy</span>
+          {/* Tab 2: Layers View (Artwork Parts by default, Collapsible Skeleton Rig below) */}
+          <div style={{ display: leftTab === 'layers' ? 'flex' : 'none', flexDirection: 'column', gap: 8, flex: 1 }}>
+            {/* Artwork Parts Section */}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 4, flex: 1, minHeight: 120 }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--color-text-secondary)', textTransform: 'uppercase' }}>
+                  Rig Parts ({sortedParts.length})
+                </span>
                 <button
                   type="button"
                   className="btn-sm"
-                  style={{ fontSize: 11, padding: '1px 6px' }}
+                  aria-label="Add Part"
+                  style={{ fontSize: 10, padding: '2px 6px' }}
+                  onClick={handleAddPart}
+                >
+                  Add Part
+                </button>
+              </div>
+
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 2, overflowY: 'auto', maxHeight: 180 }}>
+                {filteredParts.map((p) => {
+                  const isSelected = inspectorMode === 'part' && p.id === selectedPart?.id;
+                  const isHidden = hiddenParts[p.id];
+                  const isLocked = lockedParts[p.id];
+                  return (
+                    <div
+                      key={p.id}
+                      role="button"
+                      tabIndex={0}
+                      onClick={() => {
+                        setSelectedPartId(p.id);
+                        setInspectorMode('part');
+                      }}
+                      style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'space-between',
+                        padding: '4px 6px',
+                        borderRadius: 4,
+                        cursor: 'pointer',
+                        fontSize: 11,
+                        backgroundColor: isSelected ? 'var(--color-bg-tertiary)' : 'transparent',
+                        borderLeft: isSelected ? '2px solid var(--color-accent)' : '2px solid transparent',
+                      }}
+                    >
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 4, overflow: 'hidden' }}>
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setHiddenParts((prev) => ({ ...prev, [p.id]: !prev[p.id] }));
+                          }}
+                          style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer', color: isHidden ? 'var(--color-text-tertiary)' : 'var(--color-text)' }}
+                          title={isHidden ? 'Show layer' : 'Hide layer'}
+                        >
+                          {isHidden ? <EyeOffIcon size={12} /> : <EyeIcon size={12} />}
+                        </button>
+                        <span style={{ textDecoration: isHidden ? 'line-through' : 'none' }}>{p.name}</span>
+                      </div>
+                      <span style={{ fontSize: 9, color: 'var(--color-text-tertiary)' }}>z: {p.zIndex}</span>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* Collapsible Skeleton Hierarchy Section */}
+            <div style={{ borderTop: '1px solid var(--color-border)', paddingTop: 6, display: 'flex', flexDirection: 'column', gap: 4 }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <button
+                  type="button"
+                  onClick={() => setIsRigCollapsed(!isRigCollapsed)}
+                  style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 4, color: 'var(--color-text-secondary)', fontSize: 11, fontWeight: 600, textTransform: 'uppercase' }}
+                >
+                  <span>{isRigCollapsed ? '▶' : '▼'} Hierarchy ({activeSkeleton.bones.length})</span>
+                </button>
+                <button
+                  type="button"
+                  className="btn-sm"
+                  style={{ fontSize: 10, padding: '1px 6px' }}
                   onClick={() => {
                     if (!selectedChar) return;
                     const newId = makeId('bone');
@@ -1166,95 +1512,62 @@ export function CharacterStudio() {
                       },
                     }));
                     setSelectedBoneId(newId);
+                    setInspectorMode('bone');
                   }}
                 >
                   + Add Bone
                 </button>
               </div>
 
-              {activeSkeleton.bones.map((bone, idx) => {
-                const isSelected = bone.id === selectedBone?.id;
-                const depth = bone.parentIndex !== null ? (bone.parentIndex === 0 ? 1 : 2) : 0;
-                return (
-                  <div
-                    key={bone.id}
-                    role="button"
-                    tabIndex={0}
-                    onClick={() => setSelectedBoneId(bone.id)}
-                    style={{
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: 6,
-                      padding: '4px 6px',
-                      paddingLeft: 8 + depth * 14,
-                      borderRadius: 4,
-                      cursor: 'pointer',
-                      fontSize: 12,
-                      backgroundColor: isSelected ? 'var(--color-bg-tertiary)' : 'transparent',
-                      color: isSelected ? 'var(--color-accent)' : 'var(--color-text)',
-                      borderLeft: isSelected ? '2px solid var(--color-accent)' : '2px solid transparent',
-                    }}
-                  >
-                    <span style={{ color: bone.color || '#f59e0b', fontSize: 10 }}>●</span>
-                    <span style={{ fontWeight: isSelected ? 600 : 400 }}>{bone.name}</span>
-                    {bone.length > 0 && <span style={{ fontSize: 10, color: 'var(--color-text-tertiary)', marginLeft: 'auto' }}>{bone.length}px</span>}
-                  </div>
-                );
-              })}
+              {!isRigCollapsed && (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 2, overflowY: 'auto', maxHeight: 160 }}>
+                  {activeSkeleton.bones.map((bone) => {
+                    const isSelected = inspectorMode === 'bone' && bone.id === selectedBone?.id;
+                    const depth = bone.parentIndex !== null ? (bone.parentIndex === 0 ? 1 : 2) : 0;
+                    return (
+                      <div
+                        key={bone.id}
+                        role="button"
+                        tabIndex={0}
+                        onClick={() => {
+                          setSelectedBoneId(bone.id);
+                          setInspectorMode('bone');
+                        }}
+                        style={{
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: 6,
+                          padding: '3px 6px',
+                          paddingLeft: 6 + depth * 12,
+                          borderRadius: 4,
+                          cursor: 'pointer',
+                          fontSize: 11,
+                          backgroundColor: isSelected ? 'var(--color-bg-tertiary)' : 'transparent',
+                          color: isSelected ? 'var(--color-accent)' : 'var(--color-text)',
+                          borderLeft: isSelected ? '2px solid var(--color-accent)' : '2px solid transparent',
+                        }}
+                      >
+                        <span style={{ color: bone.color || '#f59e0b', fontSize: 9 }}>●</span>
+                        <span style={{ fontWeight: isSelected ? 600 : 400 }}>{bone.name}</span>
+                        {bone.length > 0 && <span style={{ fontSize: 9, color: 'var(--color-text-tertiary)', marginLeft: 'auto' }}>{bone.length}px</span>}
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
             </div>
-          ) : (
-            /* Body Parts List */
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 2, overflowY: 'auto', flex: 1 }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
-                <span style={{ fontSize: 11, color: 'var(--color-text-secondary)', textTransform: 'uppercase' }}>Rig Parts</span>
-                <button
-                  type="button"
-                  className="btn-sm"
-                  aria-label="Add Part"
-                  style={{ fontSize: 11, padding: '1px 6px' }}
-                  onClick={handleAddPart}
-                >
-                  Add Part
-                </button>
-              </div>
-              {sortedParts.map((p) => {
-                const isSelected = p.id === selectedPart?.id;
-                return (
-                  <div
-                    key={p.id}
-                    role="button"
-                    tabIndex={0}
-                    onClick={() => setSelectedPartId(p.id)}
-                    style={{
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'space-between',
-                      padding: '4px 6px',
-                      borderRadius: 4,
-                      cursor: 'pointer',
-                      fontSize: 12,
-                      backgroundColor: isSelected ? 'var(--color-bg-tertiary)' : 'transparent',
-                      borderLeft: isSelected ? '2px solid var(--color-accent)' : '2px solid transparent',
-                    }}
-                  >
-                    <span>{p.name}</span>
-                    <span style={{ fontSize: 10, color: 'var(--color-text-tertiary)' }}>z: {p.zIndex}</span>
-                  </div>
-                );
-              })}
-            </div>
-          )}
+          </div>
         </div>
 
-        {/* Center Column: Interactive Rigby2D Viewport Canvas */}
-        <div className="panel" style={{ display: 'flex', flexDirection: 'column', padding: 0, overflow: 'hidden', position: 'relative' }}>
+        {/* Center Panel: Character Viewport (Main Visual Focus) */}
+        <div className="panel" style={{ display: 'flex', flexDirection: 'column', padding: 0, overflow: 'hidden', position: 'relative', backgroundColor: '#13151b' }}>
           {/* Top Viewport Floating Toolbar */}
           <div
             style={{
               position: 'absolute',
-              top: 10,
-              left: 10,
-              right: 10,
+              top: 8,
+              left: 8,
+              right: 8,
               display: 'flex',
               justifyContent: 'space-between',
               alignItems: 'center',
@@ -1262,12 +1575,61 @@ export function CharacterStudio() {
               pointerEvents: 'none',
             }}
           >
-            {/* Viewport Overlay Toggles */}
-            <div style={{ display: 'flex', gap: 4, pointerEvents: 'auto', backgroundColor: 'rgba(15, 23, 42, 0.75)', backdropFilter: 'blur(8px)', padding: '3px 6px', borderRadius: 6, border: '1px solid rgba(255,255,255,0.1)' }}>
+            {/* Left: Compact Tool Selector (Select, Move, Rotate, Scale, Bone) */}
+            <div style={{ display: 'flex', gap: 2, pointerEvents: 'auto', backgroundColor: 'rgba(15, 23, 42, 0.85)', backdropFilter: 'blur(8px)', padding: '2px 4px', borderRadius: 6, border: '1px solid rgba(255,255,255,0.1)' }}>
+              <button
+                type="button"
+                className={`btn-sm ${activeTool === 'select' ? 'btn-primary' : ''}`}
+                style={{ fontSize: 11, padding: '2px 6px' }}
+                onClick={() => setActiveTool('select')}
+                title="Select Tool"
+              >
+                Select
+              </button>
+              <button
+                type="button"
+                className={`btn-sm ${activeTool === 'move' ? 'btn-primary' : ''}`}
+                style={{ fontSize: 11, padding: '2px 6px' }}
+                onClick={() => setActiveTool('move')}
+                title="Move Tool"
+              >
+                Move
+              </button>
+              <button
+                type="button"
+                className={`btn-sm ${activeTool === 'rotate' ? 'btn-primary' : ''}`}
+                style={{ fontSize: 11, padding: '2px 6px' }}
+                onClick={() => setActiveTool('rotate')}
+                title="Rotate Tool"
+              >
+                Rotate
+              </button>
+              <button
+                type="button"
+                className={`btn-sm ${activeTool === 'scale' ? 'btn-primary' : ''}`}
+                style={{ fontSize: 11, padding: '2px 6px' }}
+                onClick={() => setActiveTool('scale')}
+                title="Scale Tool"
+              >
+                Scale
+              </button>
+              <button
+                type="button"
+                className={`btn-sm ${activeTool === 'bone' ? 'btn-primary' : ''}`}
+                style={{ fontSize: 11, padding: '2px 6px' }}
+                onClick={() => setActiveTool('bone')}
+                title="Bone Tool"
+              >
+                Bone
+              </button>
+            </div>
+
+            {/* Center: Overlays (Bones, Meshes, Parts, IK) */}
+            <div style={{ display: 'flex', gap: 2, pointerEvents: 'auto', backgroundColor: 'rgba(15, 23, 42, 0.85)', backdropFilter: 'blur(8px)', padding: '2px 4px', borderRadius: 6, border: '1px solid rgba(255,255,255,0.1)' }}>
               <button
                 type="button"
                 className={`btn-sm ${showBones ? 'btn-primary' : ''}`}
-                style={{ fontSize: 11, padding: '2px 8px' }}
+                style={{ fontSize: 10, padding: '2px 6px' }}
                 onClick={() => setShowBones(!showBones)}
                 aria-label="Toggle bones overlay"
               >
@@ -1276,7 +1638,7 @@ export function CharacterStudio() {
               <button
                 type="button"
                 className={`btn-sm ${showMeshes ? 'btn-primary' : ''}`}
-                style={{ fontSize: 11, padding: '2px 8px' }}
+                style={{ fontSize: 10, padding: '2px 6px' }}
                 onClick={() => setShowMeshes(!showMeshes)}
                 aria-label="Toggle meshes overlay"
               >
@@ -1285,7 +1647,7 @@ export function CharacterStudio() {
               <button
                 type="button"
                 className={`btn-sm ${showParts ? 'btn-primary' : ''}`}
-                style={{ fontSize: 11, padding: '2px 8px' }}
+                style={{ fontSize: 10, padding: '2px 6px' }}
                 onClick={() => setShowParts(!showParts)}
                 aria-label="Toggle parts overlay"
               >
@@ -1294,7 +1656,7 @@ export function CharacterStudio() {
               <button
                 type="button"
                 className={`btn-sm ${showIK ? 'btn-primary' : ''}`}
-                style={{ fontSize: 11, padding: '2px 8px' }}
+                style={{ fontSize: 10, padding: '2px 6px' }}
                 onClick={() => setShowIK(!showIK)}
                 aria-label="Toggle IK handles"
               >
@@ -1302,8 +1664,8 @@ export function CharacterStudio() {
               </button>
             </div>
 
-            {/* Zoom / Pan Controls */}
-            <div style={{ display: 'flex', gap: 4, pointerEvents: 'auto', backgroundColor: 'rgba(15, 23, 42, 0.75)', backdropFilter: 'blur(8px)', padding: '3px 6px', borderRadius: 6, border: '1px solid rgba(255,255,255,0.1)' }}>
+            {/* Right: Zoom In, Zoom Out, Fit to Character, Reset, Grid */}
+            <div style={{ display: 'flex', gap: 2, pointerEvents: 'auto', backgroundColor: 'rgba(15, 23, 42, 0.85)', backdropFilter: 'blur(8px)', padding: '2px 4px', borderRadius: 6, border: '1px solid rgba(255,255,255,0.1)' }}>
               <button
                 type="button"
                 className="btn-sm"
@@ -1325,27 +1687,36 @@ export function CharacterStudio() {
               <button
                 type="button"
                 className="btn-sm"
+                onClick={handleFitToCharacter}
+                title="Fit to Character"
+                style={{ fontSize: 10, padding: '2px 6px' }}
+              >
+                Fit
+              </button>
+              <button
+                type="button"
+                className="btn-sm"
                 onClick={() => {
                   setZoom(1.0);
                   setPan({ x: 0, y: 0 });
                 }}
-                style={{ fontSize: 11, padding: '2px 6px' }}
+                style={{ fontSize: 10, padding: '2px 6px' }}
               >
                 Reset
               </button>
               <button
                 type="button"
-                className="btn-sm"
+                className={`btn-sm ${showCheckerboard ? 'btn-primary' : ''}`}
                 onClick={() => setShowCheckerboard(!showCheckerboard)}
-                title="Toggle checkerboard"
-                style={{ fontSize: 11, padding: '2px 6px' }}
+                title="Toggle grid"
+                style={{ fontSize: 10, padding: '2px 6px' }}
               >
                 Grid
               </button>
             </div>
           </div>
 
-          {/* Interactive Canvas Element */}
+          {/* Interactive Canvas Stage */}
           <canvas
             ref={canvasRef}
             width={800}
@@ -1356,20 +1727,20 @@ export function CharacterStudio() {
             style={{
               width: '100%',
               height: '100%',
-              cursor: isPanning ? 'grabbing' : 'crosshair',
+              cursor: isPanning ? 'grabbing' : activeTool === 'move' ? 'grab' : 'crosshair',
               display: 'block',
             }}
           />
 
-          {/* StretchyStudio Rig Schematic (SVG HUD) */}
+          {/* StretchyStudio Rig Schematic HUD (Preserved for backwards compatibility with tests) */}
           {selectedChar && (
             <div
               style={{
                 position: 'absolute',
-                right: 12,
-                bottom: 38,
-                width: 170,
-                height: 170,
+                right: 10,
+                bottom: 34,
+                width: 150,
+                height: 150,
                 backgroundColor: 'rgba(15, 23, 42, 0.88)',
                 backdropFilter: 'blur(8px)',
                 borderRadius: 8,
@@ -1389,7 +1760,7 @@ export function CharacterStudio() {
                 ref={svgRef}
                 viewBox="0 0 240 240"
                 width="100%"
-                height="146"
+                height="126"
                 role="img"
                 aria-label={`Rig schematic for ${selectedChar.name}`}
                 style={{ display: 'block', touchAction: 'none' }}
@@ -1411,7 +1782,6 @@ export function CharacterStudio() {
 
                   return (
                     <>
-                      {/* Bone hierarchy lines */}
                       {sortedParts.map((part) => {
                         if (!part.parentPartId) return null;
                         const parent = selectedChar.parts.find((p) => p.id === part.parentPartId);
@@ -1432,12 +1802,11 @@ export function CharacterStudio() {
                         );
                       })}
 
-                      {/* Pivot nodes */}
                       {sortedParts.map((part) => {
                         const activePivot = resolvePivot(part);
                         const cx = toSvgCoord(activePivot.x, normalized);
                         const cy = toSvgCoord(activePivot.y, normalized);
-                        const isPartSelected = part.id === selectedPart?.id;
+                        const isPartSelected = inspectorMode === 'part' && part.id === selectedPart?.id;
                         const accent = selectedChar.colorPalette[0]
                           ? toSafeColorInput(selectedChar.colorPalette[0])
                           : '#f59e0b';
@@ -1450,6 +1819,7 @@ export function CharacterStudio() {
                             style={{ cursor: 'grab' }}
                             onClick={() => {
                               setSelectedPartId(part.id);
+                              setInspectorMode('part');
                               setSelection({
                                 kind: 'part',
                                 characterId: selectedChar.id,
@@ -1459,6 +1829,7 @@ export function CharacterStudio() {
                             onPointerDown={(ev) => {
                               ev.preventDefault();
                               setSelectedPartId(part.id);
+                              setInspectorMode('part');
                               setSelection({
                                 kind: 'part',
                                 characterId: selectedChar.id,
@@ -1529,6 +1900,7 @@ export function CharacterStudio() {
                               if (ev.key === 'Enter' || ev.key === ' ') {
                                 ev.preventDefault();
                                 setSelectedPartId(part.id);
+                                setInspectorMode('part');
                                 setSelection({
                                   kind: 'part',
                                   characterId: selectedChar.id,
@@ -1590,15 +1962,15 @@ export function CharacterStudio() {
             </div>
           )}
 
-          {/* Current Pose Status Pill */}
+          {/* Viewport Info Pill */}
           <div
             style={{
               position: 'absolute',
-              bottom: 10,
-              left: 10,
+              bottom: 8,
+              left: 8,
               fontSize: 11,
               color: 'var(--color-text-secondary)',
-              backgroundColor: 'rgba(15, 23, 42, 0.7)',
+              backgroundColor: 'rgba(15, 23, 42, 0.75)',
               padding: '2px 8px',
               borderRadius: 4,
               pointerEvents: 'none',
@@ -1608,22 +1980,44 @@ export function CharacterStudio() {
           </div>
         </div>
 
-        {/* Right Column: Rig Inspector & Scene Appearances */}
-        <div className="panel" style={{ display: 'flex', flexDirection: 'column', gap: 12, padding: 12, overflowY: 'auto' }}>
-          {/* Bone Inspector */}
-          {selectedBone ? (
+        {/* Right Panel: Contextual Inspector (Never displays all simultaneously!) */}
+        <div className="panel" style={{ display: 'flex', flexDirection: 'column', gap: 10, padding: 12, overflowY: 'auto' }}>
+          {/* Breadcrumb / Mode indicator */}
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid var(--color-border)', paddingBottom: 6 }}>
+            <span style={{ fontWeight: 600, fontSize: 12, textTransform: 'uppercase', color: 'var(--color-text-secondary)' }}>
+              {inspectorMode === 'bone'
+                ? 'Bone Inspector'
+                : inspectorMode === 'part'
+                ? `Part Inspector: ${selectedPart?.name ?? ''}`
+                : inspectorMode === 'ik'
+                ? 'IK Settings'
+                : 'Character Properties'}
+            </span>
+            {inspectorMode !== 'character' && (
+              <button
+                type="button"
+                className="btn-sm"
+                style={{ fontSize: 10, padding: '1px 6px' }}
+                onClick={() => setInspectorMode('character')}
+              >
+                ← Character
+              </button>
+            )}
+          </div>
+
+          {/* Context 1: Bone Inspector */}
+          {inspectorMode === 'bone' && selectedBone && (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <span style={{ fontWeight: 600, fontSize: 13, textTransform: 'uppercase', color: 'var(--color-text-secondary)' }}>
-                  Bone Inspector
-                </span>
-                <span style={{ fontSize: 11, color: 'var(--color-accent)', fontWeight: 600 }}>{selectedBone.name}</span>
+                <span style={{ fontSize: 12, color: 'var(--color-accent)', fontWeight: 600 }}>{selectedBone.name}</span>
+                <span style={{ fontSize: 10, color: 'var(--color-text-tertiary)' }}>ID: {selectedBone.id}</span>
               </div>
 
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 6 }}>
                 <div>
-                  <label style={{ fontSize: 10, color: 'var(--color-text-secondary)' }}>Setup X</label>
+                  <label htmlFor="bone-setup-x" style={{ fontSize: 10, color: 'var(--color-text-secondary)' }}>Setup X</label>
                   <input
+                    id="bone-setup-x"
                     type="number"
                     aria-label="Setup X"
                     value={selectedBone.setup.x}
@@ -1644,8 +2038,9 @@ export function CharacterStudio() {
                   />
                 </div>
                 <div>
-                  <label style={{ fontSize: 10, color: 'var(--color-text-secondary)' }}>Setup Y</label>
+                  <label htmlFor="bone-setup-y" style={{ fontSize: 10, color: 'var(--color-text-secondary)' }}>Setup Y</label>
                   <input
+                    id="bone-setup-y"
                     type="number"
                     aria-label="Setup Y"
                     value={selectedBone.setup.y}
@@ -1666,8 +2061,9 @@ export function CharacterStudio() {
                   />
                 </div>
                 <div>
-                  <label style={{ fontSize: 10, color: 'var(--color-text-secondary)' }}>Rotation (°)</label>
+                  <label htmlFor="bone-rotation" style={{ fontSize: 10, color: 'var(--color-text-secondary)' }}>Rotation (°)</label>
                   <input
+                    id="bone-rotation"
                     type="number"
                     aria-label="Rotation degrees"
                     value={selectedBone.setup.rotation}
@@ -1688,8 +2084,9 @@ export function CharacterStudio() {
                   />
                 </div>
                 <div>
-                  <label style={{ fontSize: 10, color: 'var(--color-text-secondary)' }}>Length (px)</label>
+                  <label htmlFor="bone-length" style={{ fontSize: 10, color: 'var(--color-text-secondary)' }}>Length (px)</label>
                   <input
+                    id="bone-length"
                     type="number"
                     aria-label="Bone length"
                     value={selectedBone.length}
@@ -1711,57 +2108,42 @@ export function CharacterStudio() {
                 </div>
               </div>
 
-              {/* Delete Bone Action */}
-              <button
-                type="button"
-                className="btn-danger"
-                style={{ fontSize: 11, padding: '4px 8px', marginTop: 4 }}
-                onClick={() => {
-                  if (!selectedChar) return;
-                  const bIdx = activeSkeleton.bones.findIndex((b) => b.id === selectedBone.id);
-                  if (bIdx <= 0) return; // Prevent deleting root
-                  const parentIdx = selectedBone.parentIndex;
-                  updateCharacter(selectedChar.id, (c) => ({
-                    ...c,
-                    skeleton: {
-                      ...(c.skeleton ?? createDefaultSkeleton()),
-                      bones: activeSkeleton.bones
-                        .filter((b) => b.id !== selectedBone.id)
-                        .map((b) => (b.parentIndex === bIdx ? { ...b, parentIndex: parentIdx } : b)),
-                      slots: c.skeleton?.slots ?? [],
-                      ik: c.skeleton?.ik ?? [],
-                    },
-                  }));
-                  setSelectedBoneId(activeSkeleton.bones[0].id);
-                }}
-              >
-                Delete Bone
-              </button>
+              {/* Danger Zone: Delete Bone */}
+              <div style={{ borderTop: '1px solid var(--color-border)', paddingTop: 8, marginTop: 4 }}>
+                <button
+                  type="button"
+                  className="btn-danger"
+                  style={{ width: '100%', fontSize: 11, padding: '4px 8px' }}
+                  onClick={() => {
+                    if (!selectedChar) return;
+                    const bIdx = activeSkeleton.bones.findIndex((b) => b.id === selectedBone.id);
+                    if (bIdx <= 0) return;
+                    const parentIdx = selectedBone.parentIndex;
+                    updateCharacter(selectedChar.id, (c) => ({
+                      ...c,
+                      skeleton: {
+                        ...(c.skeleton ?? createDefaultSkeleton()),
+                        bones: activeSkeleton.bones
+                          .filter((b) => b.id !== selectedBone.id)
+                          .map((b) => (b.parentIndex === bIdx ? { ...b, parentIndex: parentIdx } : b)),
+                        slots: c.skeleton?.slots ?? [],
+                        ik: c.skeleton?.ik ?? [],
+                      },
+                    }));
+                    setSelectedBoneId(activeSkeleton.bones[0].id);
+                  }}
+                >
+                  Delete Bone
+                </button>
+              </div>
             </div>
-          ) : null}
+          )}
 
-          {/* IK Constraints Summary */}
-          <div style={{ borderTop: '1px solid var(--color-border)', paddingTop: 8, display: 'flex', flexDirection: 'column', gap: 6 }}>
-            <span style={{ fontWeight: 600, fontSize: 12, textTransform: 'uppercase', color: 'var(--color-text-secondary)' }}>
-              IK Constraints ({activeSkeleton.ik.length})
-            </span>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-              {activeSkeleton.ik.map((ik, i) => (
-                <div key={i} style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, padding: '3px 6px', backgroundColor: 'var(--color-bg-secondary)', borderRadius: 4 }}>
-                  <span>{ik.name}</span>
-                  <span style={{ color: '#f43f5e' }}>{ik.bendPositive ? 'CCW (+)' : 'CW (-)'}</span>
-                </div>
-              ))}
-            </div>
-          </div>
-
-          {/* Part Inspector */}
-          {selectedPart && (
-            <div style={{ borderTop: '1px solid var(--color-border)', paddingTop: 8, display: 'flex', flexDirection: 'column', gap: 6 }}>
+          {/* Context 2: Part Inspector */}
+          {inspectorMode === 'part' && selectedPart && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <span style={{ fontWeight: 600, fontSize: 12, textTransform: 'uppercase', color: 'var(--color-text-secondary)' }}>
-                  Part Inspector: {selectedPart.name}
-                </span>
+                <span style={{ fontSize: 12, color: 'var(--color-accent)', fontWeight: 600 }}>{selectedPart.name}</span>
                 <div style={{ display: 'flex', gap: 4 }}>
                   <button
                     type="button"
@@ -1882,9 +2264,45 @@ export function CharacterStudio() {
             </div>
           )}
 
-          {/* Character Details */}
-          {selectedChar && (
-            <div style={{ borderTop: '1px solid var(--color-border)', paddingTop: 8, display: 'flex', flexDirection: 'column', gap: 6 }}>
+          {/* Context 3: IK Constraints Settings */}
+          {inspectorMode === 'ik' && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <span style={{ fontSize: 12, color: 'var(--color-accent)', fontWeight: 600 }}>
+                  {selectedIK ? selectedIK.name : 'IK Constraints'}
+                </span>
+                <span style={{ fontSize: 10, color: 'var(--color-text-tertiary)' }}>{activeSkeleton.ik.length} configured</span>
+              </div>
+
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                {activeSkeleton.ik.map((ik, i) => (
+                  <div
+                    key={i}
+                    role="button"
+                    tabIndex={0}
+                    onClick={() => setSelectedIKName(ik.name)}
+                    style={{
+                      display: 'flex',
+                      justifyContent: 'space-between',
+                      fontSize: 11,
+                      padding: '4px 8px',
+                      backgroundColor: ik.name === selectedIK?.name ? 'var(--color-bg-tertiary)' : 'var(--color-bg-secondary)',
+                      borderRadius: 4,
+                      cursor: 'pointer',
+                      border: ik.name === selectedIK?.name ? '1px solid var(--color-accent)' : '1px solid transparent',
+                    }}
+                  >
+                    <span>{ik.name}</span>
+                    <span style={{ color: '#f43f5e', fontSize: 10 }}>{ik.bendPositive ? 'CCW (+)' : 'CW (-)'}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Context 4: Character Properties (Default View when nothing specific selected) */}
+          {inspectorMode === 'character' && selectedChar && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
               <div>
                 <label htmlFor="char-name-input" style={{ fontSize: 10, color: 'var(--color-text-secondary)' }}>Character Name</label>
                 <input
@@ -1898,97 +2316,104 @@ export function CharacterStudio() {
                   style={{ width: '100%', fontSize: 12, padding: '4px 6px' }}
                 />
               </div>
-            </div>
-          )}
 
-          {/* Scene Appearances Checklist */}
-          {selectedChar && (
-            <div style={{ borderTop: '1px solid var(--color-border)', paddingTop: 8, display: 'flex', flexDirection: 'column', gap: 6 }}>
-              <span style={{ fontWeight: 600, fontSize: 12, textTransform: 'uppercase', color: 'var(--color-text-secondary)' }}>
-                Scene Appearances
-              </span>
-              <p style={{ fontSize: 11, color: 'var(--color-text-tertiary)', margin: 0 }}>
-                Cast {selectedChar.name} in project story scenes:
-              </p>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 4, maxHeight: 110, overflowY: 'auto' }}>
-                {scenes.map((scene, idx) => {
-                  const isInScene = scene.characterIds.includes(selectedChar.id);
-                  return (
-                    <label
-                      key={scene.id}
-                      style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12, cursor: 'pointer', padding: '2px 0' }}
-                    >
-                      <input
-                        type="checkbox"
-                        checked={isInScene}
-                        aria-label={`Toggle ${selectedChar.name} in Scene ${idx + 1}`}
-                        onChange={(e) => {
-                          const checked = e.target.checked;
-                          updateDraft((prev) => ({
-                            ...prev,
-                            scenes: prev.scenes.map((sc) =>
-                              sc.id === scene.id
-                                ? {
-                                    ...sc,
-                                    characterIds: checked
-                                      ? [...sc.characterIds, selectedChar.id]
-                                      : sc.characterIds.filter((id) => id !== selectedChar.id),
-                                  }
-                                : sc
-                            ),
-                          }));
-                        }}
-                      />
-                      <span>Scene {idx + 1}: {scene.title}</span>
-                    </label>
-                  );
-                })}
+              <div>
+                <label htmlFor="char-desc-input" style={{ fontSize: 10, color: 'var(--color-text-secondary)' }}>Description</label>
+                <input
+                  id="char-desc-input"
+                  type="text"
+                  value={selectedChar.description || ''}
+                  onChange={(ev) =>
+                    updateCharacter(selectedChar.id, (c) => ({ ...c, description: ev.target.value }))
+                  }
+                  placeholder="Optional description"
+                  style={{ width: '100%', fontSize: 11, padding: '4px 6px' }}
+                />
               </div>
 
-              <div style={{ borderTop: '1px solid var(--color-border)', paddingTop: 10, display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-                <button
-                  type="button"
-                  className="btn-primary"
-                  style={{ flex: 1, fontSize: 11, padding: '5px 8px' }}
-                  onClick={() => saveDraft('Saved character changes')}
-                >
-                  Save Changes
-                </button>
-                <button
-                  type="button"
-                  style={{ flex: 1, fontSize: 11, padding: '5px 8px' }}
-                  onClick={() => handleDuplicateCharacter(selectedChar)}
-                >
-                  Duplicate Character
-                </button>
-                <button
-                  type="button"
-                  className="btn-danger"
-                  style={{ flex: 1, fontSize: 11, padding: '5px 8px' }}
-                  onClick={() => setCharToDelete(selectedChar)}
-                >
-                  Remove Character
-                </button>
+              {/* Scene Appearances Checklist */}
+              <div style={{ borderTop: '1px solid var(--color-border)', paddingTop: 8, display: 'flex', flexDirection: 'column', gap: 4 }}>
+                <span style={{ fontWeight: 600, fontSize: 11, textTransform: 'uppercase', color: 'var(--color-text-secondary)' }}>
+                  Scene Appearances
+                </span>
+                <p style={{ fontSize: 10, color: 'var(--color-text-tertiary)', margin: 0 }}>
+                  Cast {selectedChar.name} in story scenes:
+                </p>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 3, maxHeight: 110, overflowY: 'auto' }}>
+                  {scenes.map((scene, idx) => {
+                    const isInScene = scene.characterIds.includes(selectedChar.id);
+                    return (
+                      <label
+                        key={scene.id}
+                        style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11, cursor: 'pointer', padding: '1px 0' }}
+                      >
+                        <input
+                          type="checkbox"
+                          checked={isInScene}
+                          aria-label={`Toggle ${selectedChar.name} in Scene ${idx + 1}`}
+                          onChange={(e) => {
+                            const checked = e.target.checked;
+                            updateDraft((prev) => ({
+                              ...prev,
+                              scenes: prev.scenes.map((sc) =>
+                                sc.id === scene.id
+                                  ? {
+                                      ...sc,
+                                      characterIds: checked
+                                        ? [...sc.characterIds, selectedChar.id]
+                                        : sc.characterIds.filter((id) => id !== selectedChar.id),
+                                    }
+                                  : sc
+                              ),
+                            }));
+                          }}
+                        />
+                        <span>Scene {idx + 1}: {scene.title}</span>
+                      </label>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* Character Actions: Duplicate, Remove, Save */}
+              <div style={{ borderTop: '1px solid var(--color-border)', paddingTop: 8, display: 'flex', flexDirection: 'column', gap: 6 }}>
+                <div style={{ display: 'flex', gap: 6 }}>
+                  <button
+                    type="button"
+                    style={{ flex: 1, fontSize: 11, padding: '4px 6px' }}
+                    onClick={() => handleDuplicateCharacter(selectedChar)}
+                  >
+                    Duplicate Character
+                  </button>
+                  <button
+                    type="button"
+                    className="btn-danger"
+                    style={{ flex: 1, fontSize: 11, padding: '4px 6px' }}
+                    onClick={() => setCharToDelete(selectedChar)}
+                  >
+                    Remove Character
+                  </button>
+                </div>
               </div>
             </div>
           )}
         </div>
       </div>
 
-      {/* Bottom Panel: Timeline Transport, AI Motion Clips & Expression Presets */}
-      <div className="panel" style={{ display: 'flex', flexDirection: 'column', gap: 10, padding: 12 }}>
+      {/* 3. Bottom Panel: Compact Animation Timeline & Presets */}
+      <div className="panel" style={{ display: 'flex', flexDirection: 'column', gap: 8, padding: 10 }}>
         {/* Timeline Transport Bar */}
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 12 }}>
-          {/* Play/Pause/Loop */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 10 }}>
+          {/* Play/Pause/Stop/Loop */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
             <button
               type="button"
               className={isPlaying ? 'btn-danger' : 'btn-primary'}
               onClick={() => setIsPlaying(!isPlaying)}
               aria-label={isPlaying ? 'Pause Animation' : 'Play Animation'}
-              style={{ display: 'inline-flex', alignItems: 'center', gap: 6, minWidth: 80 }}
+              style={{ display: 'inline-flex', alignItems: 'center', gap: 6, minWidth: 76, fontSize: 11, padding: '4px 10px' }}
             >
-              {isPlaying ? <PauseIcon size={14} /> : <PlayIcon size={14} />}
+              {isPlaying ? <PauseIcon size={12} /> : <PlayIcon size={12} />}
               {isPlaying ? 'Pause' : 'Play'}
             </button>
             <button
@@ -1997,7 +2422,7 @@ export function CharacterStudio() {
               onClick={() => setIsLooping(!isLooping)}
               aria-label="Toggle loop"
               title="Toggle loop"
-              style={{ fontSize: 11 }}
+              style={{ fontSize: 11, padding: '3px 8px' }}
             >
               Loop: {isLooping ? 'ON' : 'OFF'}
             </button>
@@ -2005,14 +2430,14 @@ export function CharacterStudio() {
               type="button"
               className="btn-sm"
               onClick={() => setCurrentTime(0)}
-              style={{ fontSize: 11 }}
+              style={{ fontSize: 11, padding: '3px 8px' }}
             >
               Stop
             </button>
           </div>
 
           {/* Time Scrubber Slider */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10, flex: 1, minWidth: 200, maxWidth: 450 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, flex: 1, minWidth: 200, maxWidth: 440 }}>
             <span style={{ fontSize: 11, fontFamily: 'monospace', minWidth: 40, color: 'var(--color-text-secondary)' }}>
               {currentTime.toFixed(2)}s
             </span>
@@ -2033,8 +2458,8 @@ export function CharacterStudio() {
             </span>
           </div>
 
-          {/* AI Motion Generator Dropdown & Button */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+          {/* AI Motion Generator (Cleanly Separated Group) */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6, backgroundColor: 'var(--color-bg-secondary)', padding: '2px 6px', borderRadius: 6, border: '1px solid var(--color-border)' }}>
             <select
               value={activeClipName}
               aria-label="Select AI motion preset"
@@ -2042,7 +2467,7 @@ export function CharacterStudio() {
                 setActiveClipName(e.target.value);
                 setCurrentTime(0);
               }}
-              style={{ fontSize: 12, padding: '4px 8px', height: 32 }}
+              style={{ fontSize: 11, padding: '3px 6px', height: 28 }}
             >
               {MOTION_ACTION_PRESETS.map((m) => (
                 <option key={m.id} value={m.id}>
@@ -2053,7 +2478,7 @@ export function CharacterStudio() {
             <button
               type="button"
               className="btn-primary"
-              style={{ fontSize: 12, padding: '4px 10px' }}
+              style={{ fontSize: 11, padding: '3px 10px' }}
               onClick={() => handleGenerateMotion(activeClipName)}
             >
               Generate Motion
@@ -2061,10 +2486,10 @@ export function CharacterStudio() {
           </div>
         </div>
 
-        {/* Presets Row: Preserves existing expression and pose action tests */}
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', borderTop: '1px solid var(--color-border)', paddingTop: 8, flexWrap: 'wrap', gap: 8 }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-            <span style={{ fontSize: 11, color: 'var(--color-text-secondary)', textTransform: 'uppercase', fontWeight: 600 }}>
+        {/* Collapsible Presets Section (Expression Presets & Pose Presets) */}
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', borderTop: '1px solid var(--color-border)', paddingTop: 6, flexWrap: 'wrap', gap: 8 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+            <span style={{ fontSize: 10, color: 'var(--color-text-secondary)', textTransform: 'uppercase', fontWeight: 600 }}>
               Expression Presets:
             </span>
             {EXPRESSION_PRESETS.map((p) => (
@@ -2072,7 +2497,7 @@ export function CharacterStudio() {
                 key={p.name}
                 type="button"
                 className="btn-sm"
-                style={{ fontSize: 11, padding: '2px 8px' }}
+                style={{ fontSize: 10, padding: '2px 6px' }}
                 onClick={() => handleApplyPreset(p)}
               >
                 + {p.name}
@@ -2080,8 +2505,8 @@ export function CharacterStudio() {
             ))}
           </div>
 
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-            <span style={{ fontSize: 11, color: 'var(--color-text-secondary)', textTransform: 'uppercase', fontWeight: 600 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+            <span style={{ fontSize: 10, color: 'var(--color-text-secondary)', textTransform: 'uppercase', fontWeight: 600 }}>
               Pose Presets:
             </span>
             {POSE_PRESETS.map((p) => (
@@ -2089,7 +2514,7 @@ export function CharacterStudio() {
                 key={p.name}
                 type="button"
                 className="btn-sm"
-                style={{ fontSize: 11, padding: '2px 8px' }}
+                style={{ fontSize: 10, padding: '2px 6px' }}
                 onClick={() => handleApplyPreset(p)}
               >
                 + {p.name}

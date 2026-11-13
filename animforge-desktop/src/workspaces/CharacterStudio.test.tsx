@@ -349,4 +349,130 @@ describe('CharacterStudio Workspace & Rigby2D Integration', () => {
     fireEvent.click(exportCharBtn);
     expect(mockCreateObjectURL).toHaveBeenCalledTimes(2);
   });
+
+  it('switches characters and updates left panel, viewport status, and character properties', async () => {
+    render(
+      <StudioProvider>
+        <TestHarness workspace="characters">
+          <CharacterStudio />
+        </TestHarness>
+      </StudioProvider>
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText('Aria Mage')).toBeTruthy();
+      expect(screen.getByText('Elder Oakhaven')).toBeTruthy();
+    });
+
+    // Default character is Aria Mage
+    expect(screen.getByText(/Active Character:\s*Aria Mage/)).toBeTruthy();
+
+    // Switch to Elder Oakhaven
+    fireEvent.click(screen.getByText('Elder Oakhaven'));
+
+    // Header updates to Elder Oakhaven
+    await waitFor(() => {
+      expect(screen.getByText(/Active Character:\s*Elder Oakhaven/)).toBeTruthy();
+    });
+
+    // Character Properties displays Elder Oakhaven
+    const nameInput = screen.getByLabelText('Character Name') as HTMLInputElement;
+    expect(nameInput.value).toBe('Elder Oakhaven');
+  });
+
+  it('displays contextual inspector exclusively for bone, part, and character without simultaneous stacking', async () => {
+    render(
+      <StudioProvider>
+        <TestHarness workspace="characters">
+          <CharacterStudio />
+        </TestHarness>
+      </StudioProvider>
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText('Aria Mage')).toBeTruthy();
+    });
+
+    // 1. Initial state: Character Properties is displayed; Bone Inspector and Part Inspector are NOT displayed
+    expect(screen.getByText('Character Properties')).toBeTruthy();
+    expect(screen.queryByText('Bone Inspector')).toBeNull();
+    expect(screen.queryByText(/Part Inspector:/)).toBeNull();
+
+    // 2. Select bone "head" -> Only Bone Inspector is displayed
+    fireEvent.click(screen.getByText('head'));
+    expect(screen.getByText('Bone Inspector')).toBeTruthy();
+    expect(screen.queryByText('Character Properties')).toBeNull();
+    expect(screen.queryByText(/Part Inspector:/)).toBeNull();
+
+    // 3. Select an artwork part (e.g. Torso in layers tab) -> Only Part Inspector is displayed
+    fireEvent.click(screen.getAllByText('Torso')[0]);
+    expect(screen.getByText(/Part Inspector:\s*Torso/)).toBeTruthy();
+    expect(screen.queryByText('Bone Inspector')).toBeNull();
+    expect(screen.queryByText('Character Properties')).toBeNull();
+
+    // 4. Return to Character Properties via back button
+    const backBtn = screen.getByRole('button', { name: '← Character' });
+    fireEvent.click(backBtn);
+    expect(screen.getByText('Character Properties')).toBeTruthy();
+    expect(screen.queryByText('Bone Inspector')).toBeNull();
+    expect(screen.queryByText(/Part Inspector:/)).toBeNull();
+  });
+
+  it('switches editing modes (Design, Rig, Animate) adjusting tool context without destroying state', async () => {
+    render(
+      <StudioProvider>
+        <TestHarness workspace="characters">
+          <CharacterStudio />
+        </TestHarness>
+      </StudioProvider>
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText('Aria Mage')).toBeTruthy();
+    });
+
+    const designModeBtn = screen.getByRole('button', { name: 'Design' });
+    const rigModeBtn = screen.getByRole('button', { name: 'Rig' });
+    const animateModeBtn = screen.getByRole('button', { name: 'Animate' });
+
+    // Switch to Rig mode
+    fireEvent.click(rigModeBtn);
+    expect(screen.getByText('Bone Inspector')).toBeTruthy();
+
+    // Switch to Animate mode
+    fireEvent.click(animateModeBtn);
+    expect(screen.getByRole('slider', { name: 'Animation playhead scrubber' })).toBeTruthy();
+
+    // Switch back to Design mode
+    fireEvent.click(designModeBtn);
+    expect(screen.getByText('Aria Mage')).toBeTruthy();
+  });
+
+  it('supports viewport fit to character, zoom in/out, and reset view', async () => {
+    render(
+      <StudioProvider>
+        <TestHarness workspace="characters">
+          <CharacterStudio />
+        </TestHarness>
+      </StudioProvider>
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText('Aria Mage')).toBeTruthy();
+    });
+
+    const fitBtn = screen.getByRole('button', { name: 'Fit' });
+    const zoomInBtn = screen.getByTitle('Zoom in');
+    const zoomOutBtn = screen.getByTitle('Zoom out');
+    const resetBtn = screen.getByRole('button', { name: 'Reset' });
+
+    fireEvent.click(fitBtn);
+    fireEvent.click(zoomInBtn);
+    fireEvent.click(zoomOutBtn);
+    fireEvent.click(resetBtn);
+
+    // Viewport canvas remains intact
+    const canvas = document.querySelector('canvas');
+    expect(canvas).toBeTruthy();
+  });
 });

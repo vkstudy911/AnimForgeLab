@@ -1,8 +1,8 @@
 # AnimForge Studio — Page Implementation Status
 
-**Last Verified:** 2026-11-12 (Phase 2 Final Quality Gate Signed Off — `46/46` Desktop Vitest, `31/31` Core Unit + `2/2` Chrome/FFmpeg Integration, `19/19` Rust, `0` Clippy Warnings)  
+**Last Verified:** 2026-11-13 (Phase 1 Design Foundation & Global Desktop Shell Verified — `49/49` Desktop Vitest, `31/31` Core Unit, `19/19` Rust, `0` Clippy Warnings)  
 **Frontend Stack:** Tauri 2 + React 18 + TypeScript + Vite (`animforge-desktop`)  
-**Visual System:** Charcoal + Warm Amber (`dark` default, `light` Warm Paper, `system` auto via `public/theme-init.js` + `src/styles/tokens.css`), plus working `:root[data-density="compact"]` overrides and accessible shared `<NumericInput />` validation  
+**Visual System:** Charcoal + Warm Amber (`dark` default, `light` Warm Paper, `system` auto via `public/theme-init.js` + `src/styles/tokens.css`), `:root[data-density="compact"]` overrides, shadow tokens (`--shadow-sm`, `--shadow-md`, `--shadow-popover`), accessible primitives (`StudioButton`, `StudioTooltip`, `StudioNotification`, `StudioDialog`, `StudioTabs`, `NumericInput`, `SceneThumb`, `StatusBadge`, `WorkspaceErrorBoundary`)  
 **Backend Readiness Note:** All Phase 2 Tauri IPC commands (`project_delete`, `project_duplicate`, `project_import`, `project_list_render_jobs`, `project_assets_list`, `project_import_asset`, `project_import_asset_bytes`, `run_deterministic_agent`, `config_get`, `config_save`, `reveal_in_workspace`, `probe_preview_server`) and Worker Protocol v1 handlers are wired end-to-end across all 10 workspaces.
 
 ---

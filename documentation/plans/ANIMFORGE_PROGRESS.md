@@ -1,8 +1,8 @@
 # AnimForge Studio — Live Execution Progress Log
 
-**Last Updated:** 2026-11-12  
-**Active Milestone:** Phase 2 — M2-B through M2-J Final Quality Gate Signed Off (`DONE`, Resource Optimization Mode)  
-**Current Task:** Final Quality Gate Audit (`e207c8c4`) + TDD Hardening + Sequential Runtime & Integration Sign-Off (`PHASE2_FINAL_QUALITY_REPORT.md`) `DONE`
+**Last Updated:** 2026-11-13  
+**Active Milestone:** Redesign Phase 1 — Design Foundation & Global Desktop Shell (`DONE`)  
+**Current Task:** Phase 1 Design Foundation Primitives + Global Desktop Shell Screenshots & QA Sign-Off `DONE`
 
 ---
 
@@ -94,6 +94,17 @@
 | **M2-H PreviewServer Probe & Disk/Tool Doctor** | Loopback `/__health` probe (`probe_preview_server`) wired to `DiagnosticsWorkspace`; `doctor.rs` expanded with optional `blender`/`opentoonz`/`krita` probe, `statvfs` disk free space, and atomic `.animforge_write_probe_<pid>_<seq>` write test | `DONE` | Coordinator + Reviewer `1e898c07` | `DoctorBar.test.tsx` (`5/5`), Rust `cargo test` (`19/19` across sandbox + single `BypassSandbox` loopback test), `cargo clippy` (`0` warnings) |
 | **M2-I Settings Config & Compact Density** | Real `:root[data-density="compact"]` CSS rules (`tokens.css`/`base.css`/`shell.css`, light `--track-scene` contrast `#92400e`), disk `config_get`/`config_save` (`animforge.config.json`) + `localStorage` fallback, `Reset to Defaults`, accurate shortcuts & `Unavailable` engine badges | `DONE` | Coordinator + Reviewer `1e898c07` | `useThemePreference.test.ts` (`1/1`), `SecondaryWorkspaces.test.tsx` (`4/4`) |
 | **M2-J Agent Center, Final Review & Docs** | `Copy Command` with `mountedRef` cleanup, inline confirm for `Run ScenePlannerAgent` (`StoryDirectorAgent`/`CharacterManagerAgent`/`ScenePlannerAgent` calling `run_deterministic_agent`), dirty-draft flush before asset/agent actions, same-ms `StudioContext` revision equality fix, full independent reviews (`1e898c07`, `e207c8c4`) & Quality Gate TDD fixes (`persistFullProject` manifest status sync, `NewProjectDialog` reset/group a11y, `StudioDialog` focus return, hotkey/undo boundaries, `.avif`/`.flac`, active dirty rename sync, stage aspect scaling, `960x640` header fit, finite/split guards) | `DONE` | Coordinator + Reviewers `1e898c07`, `e207c8c4` | Core `31/31` unit + `2/2` Chrome/FFmpeg/ffprobe E2E + live `worker.js` stdio smoke, Desktop `46/46` (`10` files sequential), Rust `19/19`, Clippy `0`, Vite `65` modules (`335ms`), `PHASE2_FINAL_QUALITY_REPORT.md` |
+
+---
+
+## Redesign Phase 1 — Design Foundation & Global Desktop Shell (2026-11-13)
+
+| Task | Scope | Status | Owners | Verification Evidence |
+| :--- | :--- | :--- | :--- | :--- |
+| **Phase 1A Design Foundation** | Charcoal + Warm Amber theme (`dark`, `light`, `system`), shadow tokens (`--shadow-sm`, `--shadow-md`, `--shadow-popover`), CSS classes (`.studio-tooltip`, `.studio-notification`, `.btn-secondary`), accessible primitives (`StudioButton`, `StudioTooltip`, `StudioNotification`, `StudioDialog`, `StudioTabs`, `NumericInput`, `SceneThumb`, `StatusBadge`, `WorkspaceErrorBoundary`) | `DONE` | Subagent (`7d04d5f7`) + Coordinator | `primitives.test.tsx` (`6/6`), `npm test` (`49/49` across `10` files), `tsc --noEmit` exit 0, `vite build` (`65` modules, `607ms`) |
+| **Phase 1B Global Desktop Shell** | Top Header (Branding, Project Selector, Unsaved Changes dot + Save, Projects/Story/Studio/Render nav, Health pill, Theme toggle, Preview, Export MP4), Left Sidebar (`WorkspaceRail` 10 icons with `aria-current="page"` and `Alt+1..0`), Main Workspace (`page-container`, `panel`, responsive spacing `960x640` min / `1280x820` default), Panel System (resizable vertical/horizontal splitters, collapsible outliner/inspector/timeline, context inspector, bottom timeline), Tauri window behavior preserved | `DONE` | Coordinator | `WorkspaceRail.test.tsx` (`1/1`), `App.test.tsx` (`5/5`), `AnimationEditor.test.tsx` (`8/8`), Rust backend (`19/19` tests, Clippy `0` warnings) |
+| **Phase 1C Navigation** | Actual page navigation for all 10 workspaces (`#/home`, `#/projects`, `#/story`, `#/studio`, `#/characters`, `#/assets`, `#/render`, `#/agents`, `#/settings`, `#/diagnostics`); landmark roles, keyboard shortcuts, error boundary per workspace | `DONE` | Coordinator | `App.test.tsx` (`5/5` verifying shell landmarks, theme cycle, 10-workspace navigation), headless Chrome DOM verification across all 10 routes |
+| **Visual Inspection & Screenshots** | Headless Chrome (`1280x820`) screenshots of redesigned desktop shell in Dark & Light modes, Projects, Story & Scenes, Home, and Diagnostics | `DONE` | Coordinator | `01-desktop-shell-studio-dark.png`, `02-desktop-shell-studio-light.png`, `03-workspace-projects.png`, `04-workspace-story.png`, `05-workspace-home.png`, `06-workspace-diagnostics.png` in `docs/redesign/screenshots/` and conversation artifacts |
 
 ---
 

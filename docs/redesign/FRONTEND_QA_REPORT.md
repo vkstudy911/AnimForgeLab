@@ -49,3 +49,44 @@ Rendered the live compiled app at `1280x820` (`Dark`, `Light`) and `960x640` (`D
 - **macOS `WKWebView` GUI Automation:** Direct DOM clicking/scraping *inside* the native `WKWebView` window remains gated by macOS Assistive Access TCC permissions, so interactive UI behavior was verified via split proof: (a) live native Tauri process launch + `PreviewServer` security checks + clean exit, (b) Vitest + Testing Library integration suite (`35/35`), and (c) real Headless Chromium CDP screenshot & DOM geometry verification against live Vite + `PreviewServer`.
 - **Linux `WebKitGTK 4.1`:** Not tested natively on this macOS `aarch64` host; `[data-resolved-theme]` fallbacks alongside `light-dark()` are included in `src/styles/tokens.css` for WebKitGTK compatibility, pending Linux verification.
 - **Unimplemented Backend RPCs (`Planned` UI markers):** Project Delete/Duplicate, native OS Asset File Picker/Directory Scanner, persistent SQLite `render_jobs` history query, StretchyStudio `.stretch` rig bridge, and live MCP log streaming remain intentionally surfaced as `Planned` states rather than mocked.
+
+---
+
+## 4. Phase 1 Verification & Visual Sign-Off (2026-11-13)
+
+**Phase 1 Scope:** Design Foundation (Tokens, Themes, Primitives) & Global Desktop Shell (Header, Rail, Main Workbench, Panel System, 10-Workspace Navigation).
+
+### 4.1 Phase 1A Design Foundation Primitives Added
+1. **Tokens (`src/styles/tokens.css`):**
+   - `--shadow-sm`: `light-dark(0 1px 2px rgba(24, 22, 18, 0.08), 0 1px 3px rgba(0, 0, 0, 0.25))`
+   - `--shadow-md`: `light-dark(0 4px 12px rgba(24, 22, 18, 0.1), 0 4px 14px rgba(0, 0, 0, 0.35))`
+   - Explicit overrides for `:root[data-resolved-theme="dark"]` and `:root[data-resolved-theme="light"]`.
+2. **CSS Component Styles (`src/styles/base.css`):**
+   - `.studio-tooltip`, `.studio-tooltip-wrapper`, and 4 position variants (`top`, `bottom`, `left`, `right`).
+   - `.studio-notification`, `.studio-notification-info`, `.studio-notification-success`, `.studio-notification-warning`, `.studio-notification-error`.
+   - `.btn-secondary` variant matching surface elevated palette.
+3. **Reusable Primitives (`src/components/ui/`):**
+   - `StudioButton.tsx`: Variants (`primary`, `secondary`, `ghost`, `danger`), sizes (`sm`, `md`), icon, loading, `aria-busy`.
+   - `StudioTooltip.tsx`: Accessible hover/focus trigger, dynamic `aria-describedby` linkage, `role="tooltip"`, `Escape` dismissal.
+   - `StudioNotification.tsx`: Semantic role (`alert` for error, `status` for info/warn/success), optional action button, accessible dismiss button.
+4. **Unit Tests (`src/components/ui/primitives.test.tsx`):**
+   - 6 test suites covering Tabs roving tabindex, Dialog dirty cancellation guards, ErrorBoundary recovery, Button states & variants, Tooltip interactions & ARIA bindings, and Notification roles & callbacks.
+
+### 4.2 Automated Test Matrix
+| Suite | Command | Result | Duration |
+| :--- | :--- | :--- | :--- |
+| **Desktop Vitest** | `npm --prefix animforge-desktop test` | **PASS — 10/10 files, 49/49 tests** | 3.62s |
+| **Desktop TypeScript** | `npm --prefix animforge-desktop run typecheck` | **PASS — 0 errors** | 1.1s |
+| **Desktop Vite Build** | `npm --prefix animforge-desktop run build` | **PASS — 65 modules**, `dist/index.html` (0.50 kB), `dist/assets/index-DbiU5hXu.css` (29.55 kB), `dist/assets/index-CazFTiX5.js` (368.15 kB) | 607ms |
+| **Rust Clippy** | `cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets -- -D warnings` | **PASS — 0 warnings** | 0.55s |
+| **Rust Backend Tests** | `cargo test --manifest-path src-tauri/Cargo.toml` | **PASS — 19/19 tests** | 1.35s |
+| **Core TS & Tests** | `npm --prefix animforge-core run typecheck && npm test` | **PASS — 31/31 unit tests** (2 opt-in E2E tests cleanly skipped) | 2.15s |
+
+### 4.3 Phase 1 Desktop Shell Visual Screenshots
+Captured via headless Google Chrome (`1280x820`) running against the production build:
+- `01-desktop-shell-studio-dark.png`: Animation Studio workbench in Charcoal + Warm Amber dark mode, showing Outliner, Safe-Zone Preview Stage, MultiTrack Timeline, and Cue Inspector.
+- `02-desktop-shell-studio-light.png`: Animation Studio workbench in Warm Paper light mode (`--bg-app: #f5f3ee`, `--accent-amber: #b45309`).
+- `03-workspace-projects.png`: Projects Workspace card grid, search bar, and New Project inline creation.
+- `04-workspace-story.png`: Story & Scenes Workspace with storyboard logline, beat cards, and scene sequence order.
+- `05-workspace-home.png`: Home Dashboard with health status, recent projects, and quick navigation.
+- `06-workspace-diagnostics.png`: Diagnostics Workspace with PreviewServer status and live 10-category Doctor checks.

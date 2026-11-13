@@ -167,6 +167,6 @@
 | **Compiler extension** | Night-garden theme (moon, fireflies, grass), star prop (`ground`/`held`/`rise`), `hold`/`bend` pose parameters, duration-accurate walk/run/wave/blink loops | `DONE` | `npm test`: 47 tests, 45 pass, 2 skipped; new tests cover theme, star, finite loops, bend and hold |
 | **Audio** | Reused star-themed workspace audio; split ambient music at scene boundaries; pickup, sparkle, launch and whoosh SFX; imported via `animforge_import_asset` | `DONE` | 1 s test render probed: h264 + stereo AAC 48 kHz; full music timeline continuous at 4.6 s / 9.6 s |
 | **QA + preview** | `generate_preview` clean, 9 keyframe stills inspected, interactive `bundle/player.html` produced | `DONE` | **0 errors / 0 warnings**; one info-only `fast-no-blur`; inspect `issues: []` |
-| **Export** | Awaiting explicit user confirmation before rendering `output.mp4` | `PENDING` | — |
+| **Export** | Final MP4 rendered after explicit confirmation | `DONE` | `job_1794567203245_1`; ffprobe: 15.000000 s, 450 frames, 1920×1080 @ 30 fps, h264 + stereo AAC 48 kHz; audio mean −21.7 dB / peak −6.8 dB |
 
 **Limitations recorded:** 2.5D puppet (no mesh/IK/skinning/finger bones); star is a procedural prop, not a rigged 3D object; no orchestral sample library (ambient track reused from the workspace); walking/holding/waving are engine actions with pose parameters, not per-joint keyframes.

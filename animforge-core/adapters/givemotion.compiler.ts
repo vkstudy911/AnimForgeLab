@@ -167,6 +167,113 @@ function buildActionStyles(actions: CharacterAction[]): {
   };
 }
 
+/** Shifts a #rrggbb colour darker (amt < 0) or lighter (amt > 0) by amt in [0,1]. */
+function shadeHex(hex: string, amt: number): string {
+  if (!SAFE_HEX_COLOR.test(hex)) return hex;
+  const n = parseInt(hex.slice(1), 16);
+  const ch = (v: number) => Math.round(Math.min(255, Math.max(0, v)));
+  const f = (v: number) => (amt >= 0 ? v + (255 - v) * amt : v * (1 + amt));
+  const r = ch(f((n >> 16) & 0xff));
+  const g = ch(f((n >> 8) & 0xff));
+  const b = ch(f(n & 0xff));
+  return `#${((r << 16) | (g << 8) | b).toString(16).padStart(6, '0')}`;
+}
+
+/**
+ * 2.5D humanoid puppet renderer, used when a character declares a `hair` part
+ * (a layer the blob renderer has no equivalent for). Draws a cartoon kid —
+ * hair cap, face, hoodie torso, sleeves with hands, jeans legs with sneakers —
+ * parameterised by the same 5-slot colour palette, and wired to the exact same
+ * animation class hooks (af-body-root, af-head, af-arm-l/r, af-leg-l/r,
+ * af-eye, af-mouth) so every built-in action drives it unchanged.
+ */
+function buildHumanoidSvg(
+  primary: string,
+  secondary: string,
+  highlight: string,
+  shadow: string,
+  eyeSclera: string,
+  classes: string,
+  cssVars: string,
+  hasSmile: boolean,
+  offsetX: number
+): string {
+  const hoodieDark = shadeHex(primary, -0.18);
+  const hoodieLine = shadeHex(primary, -0.3);
+  const jeansLight = shadeHex(secondary, 0.28);
+  const skinDark = shadeHex(highlight, -0.22);
+  const mouthStroke = shadeHex(shadow, 0.15);
+  // scale with the frame (the shared .af-actor rule caps at 360px, which reads
+  // tiny at 1080p+); scoped to the humanoid renderer only
+  const sizeStyle = `width:min(30vw, 620px)${cssVars ? `;${cssVars}` : ''}`;
+  return `<svg class="${classes}" style="${sizeStyle}" viewBox="0 0 360 300" width="360" height="300" role="img" aria-hidden="true">
+  <g transform="translate(${offsetX}, 0)">
+    <ellipse cx="170" cy="272" rx="52" ry="9" fill="rgba(2, 6, 23, 0.45)"/>
+    <g class="af-body-root">
+      <g class="af-part af-leg-l" data-part="leg_left">
+        <rect x="134" y="206" width="28" height="46" rx="12" fill="${secondary}"/>
+        <rect x="134" y="244" width="28" height="8" rx="3" fill="${jeansLight}"/>
+        <rect x="127" y="252" width="38" height="14" rx="7" fill="${primary}"/>
+        <rect x="127" y="263" width="38" height="5" rx="2.5" fill="${eyeSclera}"/>
+      </g>
+      <g class="af-part af-leg-r" data-part="leg_right">
+        <rect x="178" y="206" width="28" height="46" rx="12" fill="${secondary}"/>
+        <rect x="178" y="244" width="28" height="8" rx="3" fill="${jeansLight}"/>
+        <rect x="175" y="252" width="38" height="14" rx="7" fill="${primary}"/>
+        <rect x="175" y="263" width="38" height="5" rx="2.5" fill="${eyeSclera}"/>
+      </g>
+      <g class="af-part af-arm-l" data-part="arm_left">
+        <rect x="84" y="148" width="26" height="54" rx="12" fill="${primary}"/>
+        <circle cx="97" cy="204" r="9" fill="${highlight}"/>
+      </g>
+      <g class="af-part af-torso" data-part="torso">
+        <rect x="110" y="140" width="120" height="78" rx="28" fill="${primary}"/>
+        <path d="M 138 190 Q 170 206 202 190 L 202 202 Q 170 212 138 202 Z" fill="${hoodieDark}"/>
+        <line x1="161" y1="146" x2="159" y2="160" stroke="${eyeSclera}" stroke-width="2.5" stroke-linecap="round"/>
+        <line x1="179" y1="146" x2="181" y2="160" stroke="${eyeSclera}" stroke-width="2.5" stroke-linecap="round"/>
+        <circle cx="159" cy="162" r="2" fill="${eyeSclera}"/>
+        <circle cx="181" cy="162" r="2" fill="${eyeSclera}"/>
+        <path d="M 130 142 Q 170 128 210 142" fill="none" stroke="${hoodieLine}" stroke-width="3" stroke-linecap="round"/>
+      </g>
+      <g class="af-part af-arm-r" data-part="arm_right">
+        <rect x="220" y="148" width="26" height="54" rx="12" fill="${primary}"/>
+        <circle cx="233" cy="204" r="9" fill="${highlight}"/>
+      </g>
+      <g class="af-part af-head" data-part="head">
+        <rect x="162" y="124" width="16" height="16" rx="5" fill="${highlight}"/>
+        <ellipse cx="170" cy="132" rx="40" ry="12" fill="${hoodieDark}"/>
+        <circle cx="124" cy="96" r="7" fill="${highlight}"/>
+        <circle cx="216" cy="96" r="7" fill="${highlight}"/>
+        <ellipse cx="170" cy="94" rx="46" ry="43" fill="${highlight}"/>
+        <g class="af-part af-hair" data-part="hair">
+          <circle cx="140" cy="66" r="23" fill="${shadow}"/>
+          <circle cx="170" cy="56" r="27" fill="${shadow}"/>
+          <circle cx="200" cy="66" r="23" fill="${shadow}"/>
+          <circle cx="122" cy="80" r="13" fill="${shadow}"/>
+          <circle cx="218" cy="80" r="13" fill="${shadow}"/>
+          <circle cx="146" cy="70" r="13" fill="${shadow}"/>
+          <circle cx="194" cy="70" r="13" fill="${shadow}"/>
+        </g>
+        <path d="M 137 79 Q 147 73 157 79" fill="none" stroke="${shadow}" stroke-width="4" stroke-linecap="round"/>
+        <path d="M 183 79 Q 193 73 203 79" fill="none" stroke="${shadow}" stroke-width="4" stroke-linecap="round"/>
+        <g class="af-part af-eye af-eye-l" data-part="eye_left">
+          <ellipse cx="148" cy="94" rx="12" ry="14" fill="${eyeSclera}"/>
+          <circle cx="149" cy="96" r="6.5" fill="#2b1a10"/>
+          <circle cx="151.5" cy="92" r="2.4" fill="#ffffff"/>
+        </g>
+        <g class="af-part af-eye af-eye-r" data-part="eye_right">
+          <ellipse cx="192" cy="94" rx="12" ry="14" fill="${eyeSclera}"/>
+          <circle cx="191" cy="96" r="6.5" fill="#2b1a10"/>
+          <circle cx="193.5" cy="92" r="2.4" fill="#ffffff"/>
+        </g>
+        <path d="M 170 102 Q 174 108 169 110" fill="none" stroke="${skinDark}" stroke-width="3" stroke-linecap="round"/>
+        <path class="af-part af-mouth" data-part="mouth" d="${hasSmile ? 'M 152 114 Q 170 132 188 114' : 'M 157 116 Q 170 123 183 116'}" fill="none" stroke="${mouthStroke}" stroke-width="4.5" stroke-linecap="round"/>
+      </g>
+    </g>
+  </g>
+</svg>`;
+}
+
 export function buildCharacterSvg(
   character: Character | undefined,
   actions: CharacterAction[] = [],
@@ -188,6 +295,20 @@ export function buildCharacterSvg(
     const expr = a.parameters?.expression;
     return typeof expr === 'string' && expr.toLowerCase() === 'smile';
   });
+  const isHumanoid = (character?.parts ?? []).some((p) => p.id === 'hair');
+  if (isHumanoid) {
+    return buildHumanoidSvg(
+      primary,
+      secondary,
+      highlight,
+      shadow,
+      eyeSclera,
+      classList,
+      cssVars,
+      hasSmile,
+      hasPortalProp ? -36 : 0
+    );
+  }
   const mouthPath = hasSmile
     ? 'M 152 135 Q 170 154 188 135'
     : 'M 156 138 Q 170 146 184 138';

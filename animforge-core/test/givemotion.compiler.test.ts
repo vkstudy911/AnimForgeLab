@@ -402,3 +402,49 @@ test('compileProjectHtml compiles safe background images and non-muted audio cue
   assert.ok(!htmlEncoded.includes('foo.png'));
   assert.equal((htmlEncoded.match(/<img class="scene-bg"/g) ?? []).length, 0);
 });
+
+test('humanoid puppet renders when a hair part exists', () => {
+  const boy: Character = {
+    id: 'char_boy',
+    name: 'Cute Boy',
+    description: 'Reference-informed 2.5D kid puppet',
+    colorPalette: ['#e03a3e', '#4a72c4', '#f6c9a0', '#4a2c18', '#ffffff'],
+    parts: [
+      { id: 'torso', name: 'Torso', layerName: 'body_torso', pivot: { x: 0.5, y: 0.8 }, zIndex: 10 },
+      { id: 'head', name: 'Head', layerName: 'body_head', pivot: { x: 0.5, y: 0.9 }, zIndex: 20, parentPartId: 'torso' },
+      { id: 'hair', name: 'Hair', layerName: 'face_hair', pivot: { x: 0.5, y: 0.3 }, zIndex: 21, parentPartId: 'head' },
+      { id: 'eye_left', name: 'Left Eye', layerName: 'face_eye_l', pivot: { x: 0.5, y: 0.5 }, zIndex: 22, parentPartId: 'head' },
+      { id: 'eye_right', name: 'Right Eye', layerName: 'face_eye_r', pivot: { x: 0.5, y: 0.5 }, zIndex: 22, parentPartId: 'head' },
+      { id: 'mouth', name: 'Mouth', layerName: 'face_mouth', pivot: { x: 0.5, y: 0.5 }, zIndex: 23, parentPartId: 'head' },
+      { id: 'arm_left', name: 'Left Arm', layerName: 'limb_arm_l', pivot: { x: 0.5, y: 0.15 }, zIndex: 5, parentPartId: 'torso' },
+      { id: 'arm_right', name: 'Right Arm', layerName: 'limb_arm_r', pivot: { x: 0.5, y: 0.15 }, zIndex: 25, parentPartId: 'torso' },
+      { id: 'leg_left', name: 'Left Leg', layerName: 'limb_leg_l', pivot: { x: 0.5, y: 0.15 }, zIndex: 8, parentPartId: 'torso' },
+      { id: 'leg_right', name: 'Right Leg', layerName: 'limb_leg_r', pivot: { x: 0.5, y: 0.15 }, zIndex: 8, parentPartId: 'torso' },
+    ],
+  };
+  const svg = buildCharacterSvg(boy, [
+    { actionId: 'a1', name: 'wave', startTime: 0, duration: 1, parameters: {} },
+    { actionId: 'a2', name: 'smile', startTime: 0, duration: 1, parameters: {} },
+  ]);
+  // animation hooks are intact so every built-in action drives the puppet
+  assert.ok(svg.includes('af-actor af-actor--wave af-actor--smile'));
+  assert.ok(svg.includes('af-body-root'));
+  for (const hook of ['af-head', 'af-arm-l', 'af-arm-r', 'af-leg-l', 'af-leg-r', 'af-eye-l', 'af-mouth']) {
+    assert.ok(svg.includes(hook), `missing animation hook ${hook}`);
+  }
+  // palette drives hoodie/jeans/skin/hair, hair part triggers humanoid branch
+  assert.ok(svg.includes('data-part="hair"'));
+  assert.ok(svg.includes('#e03a3e'));
+  assert.ok(svg.includes('#4a72c4'));
+  assert.ok(svg.includes('#f6c9a0'));
+  assert.ok(svg.includes('#4a2c18'));
+  assert.ok(svg.includes('Q 170 132 188 114')); // open smile variant
+  assert.ok(!svg.includes('af-prop-door'));
+});
+
+test('blob renderer stays the default without a hair part', () => {
+  const svg = buildCharacterSvg(SAMPLE_CHARACTER, []);
+  assert.ok(svg.includes('data-part="torso"'));
+  assert.ok(!svg.includes('data-part="hair"'));
+  assert.ok(svg.includes('#22c55e'));
+});

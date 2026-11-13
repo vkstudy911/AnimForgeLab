@@ -1,9 +1,9 @@
 import type React from 'react';
-import { useId, useMemo, useRef, useState } from 'react';
+import { useEffect, useId, useMemo, useRef, useState } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { useStudioContext } from '../context/StudioContext';
 import type { EngineId, ProjectDetail, ProjectSummary } from '../types';
-import { CopyIcon, ExportIcon, SearchIcon, TrashIcon } from '../components/ui/Icons';
+import { CopyIcon, EditIcon, ExportIcon, RefreshIcon, SearchIcon, TrashIcon } from '../components/ui/Icons';
 import { NumericInput } from '../components/ui/NumericInput';
 import { SceneThumb } from '../components/ui/SceneThumb';
 import { StatusBadge, type BadgeTone } from '../components/ui/StatusBadge';
@@ -56,6 +56,7 @@ export function ProjectManager() {
     isDirty,
     updateDraft,
     saveDraft,
+    discardDraft,
     applyRenamedProject,
     openProject,
     createAndOpenProject,
@@ -70,6 +71,7 @@ export function ProjectManager() {
     clearBlurAnnouncement,
   } = useStudioContext();
 
+  const [sidebarMode, setSidebarMode] = useState<'new' | 'edit'>('new');
   const [query, setQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState<string>('all');
   const [sortKey, setSortKey] = useState<ProjectSortKey>('default');
@@ -79,6 +81,11 @@ export function ProjectManager() {
   const [renamingBusy, setRenamingBusy] = useState(false);
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
   const [exportingId, setExportingId] = useState<string | null>(null);
+
+  // Auto-refresh projects on mount
+  useEffect(() => {
+    void refreshProjects();
+  }, [refreshProjects]);
 
   // Embedded New Project form state
   const [name, setName] = useState('');
@@ -92,6 +99,9 @@ export function ProjectManager() {
   const [promptError, setPromptError] = useState<string | null>(null);
 
   const newHeadingId = useId();
+  const editHeadingId = useId();
+  const editNameId = useId();
+  const editPromptId = useId();
   const activeSettingsHeadingId = useId();
   const nameId = useId();
   const nameErrId = useId();
@@ -324,8 +334,19 @@ export function ProjectManager() {
               <StudioButton
                 variant="secondary"
                 size="sm"
+                onClick={() => void refreshProjects()}
+                disabled={busy.loadingList}
+                loading={busy.loadingList}
+                icon={<RefreshIcon size={13} />}
+              >
+                {busy.loadingList ? 'Refreshing...' : 'Refresh'}
+              </StudioButton>
+              <StudioButton
+                variant="secondary"
+                size="sm"
                 onClick={() => importInputRef.current?.click()}
                 disabled={busy.creating || busy.rendering}
+                icon={<ExportIcon size={13} />}
               >
                 Import JSON
               </StudioButton>
@@ -452,6 +473,19 @@ export function ProjectManager() {
                             variant="secondary"
                             size="sm"
                             onClick={() => {
+                              setSidebarMode('edit');
+                              if (activeProject?.id !== p.id) {
+                                void openProject(p.id, 'projects', { forceReload: true });
+                              }
+                            }}
+                            icon={<EditIcon size={13} />}
+                          >
+                            Edit
+                          </StudioButton>
+                          <StudioButton
+                            variant="secondary"
+                            size="sm"
+                            onClick={() => {
                               setRenamingId(p.id);
                               setRenameValue(p.name);
                               setActionError(null);
@@ -528,239 +562,455 @@ export function ProjectManager() {
           )}
         </section>
 
-        {/* Embedded New Project form */}
-        <section className="panel" aria-labelledby={newHeadingId}>
-          <h2 id={newHeadingId} style={{ marginBottom: 4 }}>
-            New Project
-          </h2>
-          <p className="field-hint" style={{ marginBottom: 12 }}>
-            Fields marked * are required.
-          </p>
-
-          <form noValidate className="dialog-form" onSubmit={handleCreateSubmit}>
-            <div className="field">
-              <label htmlFor={nameId}>
-                Project Name <span className="required-mark">*</span>
-              </label>
-              <input
-                ref={nameRef}
-                id={nameId}
-                name="projectName"
-                type="text"
-                placeholder="Untitled Project"
-                required
-                aria-invalid={nameError ? 'true' : 'false'}
-                aria-describedby={nameError ? nameErrId : undefined}
-                value={name}
-                onChange={(ev) => {
-                  const v = ev.target.value;
-                  setNameTouched(true);
-                  setName(v);
-                  if (nameError && v.trim()) {
-                    setNameError(null);
-                    clearBlurAnnouncement();
-                  }
-                }}
-                onBlur={() => {
-                  if (nameTouched && !name.trim()) {
-                    const msg = 'Enter a project name.';
-                    setNameError(msg);
-                    scheduleBlurAnnouncement('Project Name', msg);
-                  }
-                }}
-              />
-              {nameError ? (
-                <span id={nameErrId} className="field-error">
-                  {nameError}
-                </span>
-              ) : null}
-            </div>
-
-            <div className="field">
-              <label htmlFor={promptId}>
-                Prompt <span className="required-mark">*</span>
-              </label>
-              <textarea
-                ref={promptRef}
-                id={promptId}
-                name="projectPrompt"
-                placeholder="Describe characters, action, mood, and setting..."
-                required
-                aria-invalid={promptError ? 'true' : 'false'}
-                aria-describedby={promptError ? promptErrId : undefined}
-                value={prompt}
-                onChange={(ev) => {
-                  const v = ev.target.value;
-                  setPromptTouched(true);
-                  setPrompt(v);
-                  if (promptError && v.trim()) {
-                    setPromptError(null);
-                    clearBlurAnnouncement();
-                  }
-                }}
-                onBlur={() => {
-                  if (promptTouched && !prompt.trim()) {
-                    const msg = 'Describe the animation prompt.';
-                    setPromptError(msg);
-                    scheduleBlurAnnouncement('Prompt', msg);
-                  }
-                }}
-              />
-              {promptError ? (
-                <span id={promptErrId} className="field-error">
-                  {promptError}
-                </span>
-              ) : null}
-            </div>
-
-            <div className="field">
-              <span style={{ fontSize: 'var(--text-sm)', fontWeight: 500, color: 'var(--text-secondary)' }}>
-                Aspect Ratio
-              </span>
-              <div className="segmented-row" role="group" aria-label="Aspect Ratio">
-                {ASPECT_PRESETS.map((preset, idx) => (
-                  <button
-                    key={preset.label}
-                    type="button"
-                    aria-pressed={aspectIndex === idx}
-                    onClick={() => setAspectIndex(idx)}
-                  >
-                    {preset.label}
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            <div className="field">
-              <span style={{ fontSize: 'var(--text-sm)', fontWeight: 500, color: 'var(--text-secondary)' }}>
-                FPS
-              </span>
-              <div className="segmented-row" role="group" aria-label="FPS">
-                {([24, 30, 60] as const).map((rate) => (
-                  <button
-                    key={rate}
-                    type="button"
-                    aria-pressed={fps === rate}
-                    onClick={() => setFps(rate)}
-                  >
-                    {rate}
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            <div className="field">
-              <label htmlFor={engineSelectId}>Preferred Engine</label>
-              <select
-                id={engineSelectId}
-                value={preferredEngine}
-                onChange={(ev) => setPreferredEngine(ev.target.value as EngineId)}
-              >
-                <option value="givemotion">GiveMotion (Native Ready)</option>
-                <option value="remotion">Remotion</option>
-                <option value="stretchystudio">StretchyStudio</option>
-                <option value="composite">Composite</option>
-              </select>
-            </div>
-
-            <StudioButton
-              type="submit"
-              variant="primary"
-              disabled={busy.creating || busy.rendering}
-              loading={busy.creating}
+        {/* Right sidebar: New Project or Edit Details */}
+        <section className="panel" aria-labelledby={sidebarMode === 'new' ? newHeadingId : editHeadingId}>
+          <div className="segmented-row" role="group" aria-label="Sidebar Mode" style={{ marginBottom: 14 }}>
+            <button
+              type="button"
+              aria-pressed={sidebarMode === 'new'}
+              onClick={() => setSidebarMode('new')}
             >
-              Create Project
-            </StudioButton>
-          </form>
-
-          {/* Active Project Settings */}
-          {draftProject ? (
-            <section
-              aria-labelledby={activeSettingsHeadingId}
-              style={{
-                marginTop: 18,
-                paddingTop: 14,
-                borderTop: '1px solid var(--border-subtle)',
-                display: 'flex',
-                flexDirection: 'column',
-                gap: 10,
-              }}
+              + New Project
+            </button>
+            <button
+              type="button"
+              aria-pressed={sidebarMode === 'edit'}
+              onClick={() => setSidebarMode('edit')}
             >
-              <h3 id={activeSettingsHeadingId}>Active Project Settings</h3>
-              <p className="field-hint">
-                Editing open project <strong>{draftProject.name}</strong>
+              Edit Details {draftProject ? `(${draftProject.name})` : ''}
+            </button>
+          </div>
+
+          {sidebarMode === 'new' ? (
+            <>
+              <h2 id={newHeadingId} style={{ marginBottom: 4 }}>
+                New Project
+              </h2>
+              <p className="field-hint" style={{ marginBottom: 12 }}>
+                Fields marked * are required.
               </p>
-              <div className="dialog-two-col">
+
+              <form noValidate className="dialog-form" onSubmit={handleCreateSubmit}>
                 <div className="field">
-                  <label htmlFor={activeWidthId}>Width (px)</label>
-                  <NumericInput
-                    id={activeWidthId}
-                    min={160}
-                    max={7680}
-                    step={2}
-                    integer
-                    value={draftProject.width}
-                    onCommit={(val) => updateDraft((prev) => ({ ...prev, width: val }))}
-                  />
-                </div>
-                <div className="field">
-                  <label htmlFor={activeHeightId}>Height (px)</label>
-                  <NumericInput
-                    id={activeHeightId}
-                    min={160}
-                    max={4320}
-                    step={2}
-                    integer
-                    value={draftProject.height}
-                    onCommit={(val) => updateDraft((prev) => ({ ...prev, height: val }))}
-                  />
-                </div>
-              </div>
-              <div className="dialog-two-col">
-                <div className="field">
-                  <label htmlFor={activeFpsId}>FPS</label>
-                  <select
-                    id={activeFpsId}
-                    value={String(draftProject.fps)}
+                  <label htmlFor={nameId}>
+                    Project Name <span className="required-mark">*</span>
+                  </label>
+                  <input
+                    ref={nameRef}
+                    id={nameId}
+                    name="projectName"
+                    type="text"
+                    placeholder="Untitled Project"
+                    required
+                    aria-invalid={nameError ? 'true' : 'false'}
+                    aria-describedby={nameError ? nameErrId : undefined}
+                    value={name}
                     onChange={(ev) => {
-                      const val = Number(ev.target.value);
-                      if (Number.isFinite(val) && val > 0) {
-                        updateDraft((prev) => ({ ...prev, fps: val }));
+                      const v = ev.target.value;
+                      setNameTouched(true);
+                      setName(v);
+                      if (nameError && v.trim()) {
+                        setNameError(null);
+                        clearBlurAnnouncement();
                       }
                     }}
-                  >
-                    <option value="24">24 FPS</option>
-                    <option value="30">30 FPS</option>
-                    <option value="60">60 FPS</option>
-                  </select>
+                    onBlur={() => {
+                      if (nameTouched && !name.trim()) {
+                        const msg = 'Enter a project name.';
+                        setNameError(msg);
+                        scheduleBlurAnnouncement('Project Name', msg);
+                      }
+                    }}
+                  />
+                  {nameError ? (
+                    <span id={nameErrId} className="field-error">
+                      {nameError}
+                    </span>
+                  ) : null}
                 </div>
+
                 <div className="field">
-                  <label htmlFor={activeEngineId}>Engine</label>
+                  <label htmlFor={promptId}>
+                    Prompt <span className="required-mark">*</span>
+                  </label>
+                  <textarea
+                    ref={promptRef}
+                    id={promptId}
+                    name="projectPrompt"
+                    placeholder="Describe characters, action, mood, and setting..."
+                    required
+                    aria-invalid={promptError ? 'true' : 'false'}
+                    aria-describedby={promptError ? promptErrId : undefined}
+                    value={prompt}
+                    onChange={(ev) => {
+                      const v = ev.target.value;
+                      setPromptTouched(true);
+                      setPrompt(v);
+                      if (promptError && v.trim()) {
+                        setPromptError(null);
+                        clearBlurAnnouncement();
+                      }
+                    }}
+                    onBlur={() => {
+                      if (promptTouched && !prompt.trim()) {
+                        const msg = 'Describe the animation prompt.';
+                        setPromptError(msg);
+                        scheduleBlurAnnouncement('Prompt', msg);
+                      }
+                    }}
+                  />
+                  {promptError ? (
+                    <span id={promptErrId} className="field-error">
+                      {promptError}
+                    </span>
+                  ) : null}
+                </div>
+
+                <div className="field">
+                  <span style={{ fontSize: 'var(--text-sm)', fontWeight: 500, color: 'var(--text-secondary)' }}>
+                    Aspect Ratio
+                  </span>
+                  <div className="segmented-row" role="group" aria-label="Aspect Ratio">
+                    {ASPECT_PRESETS.map((preset, idx) => (
+                      <button
+                        key={preset.label}
+                        type="button"
+                        aria-pressed={aspectIndex === idx}
+                        onClick={() => setAspectIndex(idx)}
+                      >
+                        {preset.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="field">
+                  <span style={{ fontSize: 'var(--text-sm)', fontWeight: 500, color: 'var(--text-secondary)' }}>
+                    FPS
+                  </span>
+                  <div className="segmented-row" role="group" aria-label="FPS">
+                    {([24, 30, 60] as const).map((rate) => (
+                      <button
+                        key={rate}
+                        type="button"
+                        aria-pressed={fps === rate}
+                        onClick={() => setFps(rate)}
+                      >
+                        {rate}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="field">
+                  <label htmlFor={engineSelectId}>Preferred Engine</label>
                   <select
-                    id={activeEngineId}
-                    value={draftProject.preferredEngine}
-                    onChange={(ev) =>
-                      updateDraft((prev) => ({ ...prev, preferredEngine: ev.target.value as EngineId }))
-                    }
+                    id={engineSelectId}
+                    value={preferredEngine}
+                    onChange={(ev) => setPreferredEngine(ev.target.value as EngineId)}
                   >
-                    <option value="givemotion">GiveMotion</option>
+                    <option value="givemotion">GiveMotion (Native Ready)</option>
                     <option value="remotion">Remotion</option>
                     <option value="stretchystudio">StretchyStudio</option>
                     <option value="composite">Composite</option>
                   </select>
                 </div>
+
+                <StudioButton
+                  type="submit"
+                  variant="primary"
+                  disabled={busy.creating || busy.rendering}
+                  loading={busy.creating}
+                >
+                  Create Project
+                </StudioButton>
+              </form>
+
+              {/* Active Project Settings */}
+              {draftProject ? (
+                <section
+                  aria-labelledby={activeSettingsHeadingId}
+                  style={{
+                    marginTop: 18,
+                    paddingTop: 14,
+                    borderTop: '1px solid var(--border-subtle)',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: 10,
+                  }}
+                >
+                  <h3 id={activeSettingsHeadingId}>Active Project Settings</h3>
+                  <p className="field-hint">
+                    Editing open project <strong>{draftProject.name}</strong>
+                  </p>
+                  <div className="dialog-two-col">
+                    <div className="field">
+                      <label htmlFor={activeWidthId}>Width (px)</label>
+                      <NumericInput
+                        id={activeWidthId}
+                        min={160}
+                        max={7680}
+                        step={2}
+                        integer
+                        value={draftProject.width}
+                        onCommit={(val) => updateDraft((prev) => ({ ...prev, width: val }))}
+                      />
+                    </div>
+                    <div className="field">
+                      <label htmlFor={activeHeightId}>Height (px)</label>
+                      <NumericInput
+                        id={activeHeightId}
+                        min={160}
+                        max={4320}
+                        step={2}
+                        integer
+                        value={draftProject.height}
+                        onCommit={(val) => updateDraft((prev) => ({ ...prev, height: val }))}
+                      />
+                    </div>
+                  </div>
+                  <div className="dialog-two-col">
+                    <div className="field">
+                      <label htmlFor={activeFpsId}>FPS</label>
+                      <select
+                        id={activeFpsId}
+                        value={String(draftProject.fps)}
+                        onChange={(ev) => {
+                          const val = Number(ev.target.value);
+                          if (Number.isFinite(val) && val > 0) {
+                            updateDraft((prev) => ({ ...prev, fps: val }));
+                          }
+                        }}
+                      >
+                        <option value="24">24 FPS</option>
+                        <option value="30">30 FPS</option>
+                        <option value="60">60 FPS</option>
+                      </select>
+                    </div>
+                    <div className="field">
+                      <label htmlFor={activeEngineId}>Engine</label>
+                      <select
+                        id={activeEngineId}
+                        value={draftProject.preferredEngine}
+                        onChange={(ev) =>
+                          updateDraft((prev) => ({ ...prev, preferredEngine: ev.target.value as EngineId }))
+                        }
+                      >
+                        <option value="givemotion">GiveMotion</option>
+                        <option value="remotion">Remotion</option>
+                        <option value="stretchystudio">StretchyStudio</option>
+                        <option value="composite">Composite</option>
+                      </select>
+                    </div>
+                  </div>
+                  <StudioButton
+                    type="button"
+                    variant="secondary"
+                    disabled={busy.saving || busy.rendering}
+                    loading={busy.saving}
+                    onClick={() => void saveDraft('Saved project settings.')}
+                  >
+                    Save Project Settings
+                  </StudioButton>
+                </section>
+              ) : null}
+            </>
+          ) : (
+            <>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
+                <h2 id={editHeadingId} style={{ margin: 0 }}>
+                  Edit Project Details
+                </h2>
+                {draftProject ? (
+                  <StatusBadge tone={statusTone(draftProject.status)}>{draftProject.status}</StatusBadge>
+                ) : null}
               </div>
-              <StudioButton
-                type="button"
-                variant="secondary"
-                disabled={busy.saving || busy.rendering}
-                loading={busy.saving}
-                onClick={() => void saveDraft('Saved project settings.')}
-              >
-                Save Project Settings
-              </StudioButton>
-            </section>
-          ) : null}
+
+              {!draftProject ? (
+                <div style={{ padding: '24px 8px', textAlign: 'center' }}>
+                  <p className="field-hint" style={{ marginBottom: 12 }}>
+                    No project selected for editing.
+                  </p>
+                  <p style={{ fontSize: 'var(--text-xs)', color: 'var(--text-secondary)' }}>
+                    Click <strong>Edit</strong> on any project card in the list to load and edit its details.
+                  </p>
+                </div>
+              ) : (
+                <form
+                  noValidate
+                  className="dialog-form"
+                  onSubmit={(ev) => {
+                    ev.preventDefault();
+                    void saveDraft('Saved project details.');
+                  }}
+                >
+                  <div className="field">
+                    <label htmlFor={editNameId}>
+                      Project Name <span className="required-mark">*</span>
+                    </label>
+                    <input
+                      id={editNameId}
+                      name="editProjectName"
+                      type="text"
+                      required
+                      value={draftProject.name}
+                      onChange={(ev) => {
+                        const val = ev.target.value;
+                        updateDraft((prev) => ({ ...prev, name: val }));
+                      }}
+                    />
+                  </div>
+
+                  <div className="field">
+                    <label htmlFor={editPromptId}>
+                      Prompt / Logline <span className="required-mark">*</span>
+                    </label>
+                    <textarea
+                      id={editPromptId}
+                      name="editProjectPrompt"
+                      rows={3}
+                      required
+                      value={draftProject.prompt}
+                      onChange={(ev) => {
+                        const val = ev.target.value;
+                        updateDraft((prev) => ({ ...prev, prompt: val }));
+                      }}
+                    />
+                  </div>
+
+                  <div className="field">
+                    <span style={{ fontSize: 'var(--text-sm)', fontWeight: 500, color: 'var(--text-secondary)' }}>
+                      Aspect Ratio Presets
+                    </span>
+                    <div className="segmented-row" role="group" aria-label="Edit Aspect Ratio">
+                      {ASPECT_PRESETS.map((preset) => {
+                        const isMatch = draftProject.width === preset.width && draftProject.height === preset.height;
+                        return (
+                          <button
+                            key={preset.label}
+                            type="button"
+                            aria-pressed={isMatch}
+                            onClick={() =>
+                              updateDraft((prev) => ({
+                                ...prev,
+                                width: preset.width,
+                                height: preset.height,
+                              }))
+                            }
+                          >
+                            {preset.label}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+
+                  <div className="dialog-two-col">
+                    <div className="field">
+                      <label htmlFor={activeWidthId}>Width (px)</label>
+                      <NumericInput
+                        id={activeWidthId}
+                        min={160}
+                        max={7680}
+                        step={2}
+                        integer
+                        value={draftProject.width}
+                        onCommit={(val) => updateDraft((prev) => ({ ...prev, width: val }))}
+                      />
+                    </div>
+                    <div className="field">
+                      <label htmlFor={activeHeightId}>Height (px)</label>
+                      <NumericInput
+                        id={activeHeightId}
+                        min={160}
+                        max={4320}
+                        step={2}
+                        integer
+                        value={draftProject.height}
+                        onCommit={(val) => updateDraft((prev) => ({ ...prev, height: val }))}
+                      />
+                    </div>
+                  </div>
+
+                  <div className="dialog-two-col">
+                    <div className="field">
+                      <label htmlFor={activeFpsId}>FPS</label>
+                      <select
+                        id={activeFpsId}
+                        value={String(draftProject.fps)}
+                        onChange={(ev) => {
+                          const val = Number(ev.target.value);
+                          if (Number.isFinite(val) && val > 0) {
+                            updateDraft((prev) => ({ ...prev, fps: val }));
+                          }
+                        }}
+                      >
+                        <option value="24">24 FPS</option>
+                        <option value="30">30 FPS</option>
+                        <option value="60">60 FPS</option>
+                      </select>
+                    </div>
+
+                    <div className="field">
+                      <label htmlFor={activeEngineId}>Engine</label>
+                      <select
+                        id={activeEngineId}
+                        value={draftProject.preferredEngine}
+                        onChange={(ev) =>
+                          updateDraft((prev) => ({ ...prev, preferredEngine: ev.target.value as EngineId }))
+                        }
+                      >
+                        <option value="givemotion">GiveMotion (Native Ready)</option>
+                        <option value="remotion">Remotion</option>
+                        <option value="stretchystudio">StretchyStudio</option>
+                        <option value="composite">Composite</option>
+                      </select>
+                    </div>
+                  </div>
+
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginTop: 12 }}>
+                    <div style={{ display: 'flex', gap: 8 }}>
+                      <StudioButton
+                        type="submit"
+                        variant="primary"
+                        style={{ flex: 1 }}
+                        disabled={!isDirty || busy.saving || busy.rendering}
+                        loading={busy.saving}
+                      >
+                        {isDirty ? 'Save Changes' : 'Saved'}
+                      </StudioButton>
+                      <StudioButton
+                        type="button"
+                        variant="secondary"
+                        disabled={!isDirty || busy.saving}
+                        onClick={discardDraft}
+                      >
+                        Discard
+                      </StudioButton>
+                    </div>
+
+                    <div style={{ display: 'flex', gap: 8 }}>
+                      <StudioButton
+                        type="button"
+                        variant="secondary"
+                        style={{ flex: 1 }}
+                        onClick={() => void openProject(draftProject.id, 'studio')}
+                      >
+                        Open in Studio
+                      </StudioButton>
+                      <StudioButton
+                        type="button"
+                        variant="ghost"
+                        onClick={() => setSidebarMode('new')}
+                      >
+                        Close
+                      </StudioButton>
+                    </div>
+                  </div>
+                </form>
+              )}
+            </>
+          )}
         </section>
       </div>
     </div>

@@ -7,6 +7,7 @@ import { createNodeProcessRunner, ProcessRunner } from '../../adapters/process-r
 import {
   AssetSchema,
   CharacterSchema,
+  DiskManifestSchema,
   Project,
   ProjectConfigSchema,
   RenderJob,
@@ -42,14 +43,6 @@ import {
   requireConfirmation,
   resolveSafeDestAssetPath,
 } from './validation.js';
-
-const DiskManifestSchema = z.object({
-  config: ProjectConfigSchema,
-  storyboard: StoryboardSchema.optional(),
-  characters: z.array(CharacterSchema).default([]),
-  assets: z.array(AssetSchema).default([]),
-  scenes: z.array(SceneSchema).default([]),
-});
 
 let mcpIdSeq = 0;
 function nextMcpId(prefix: string): string {
@@ -123,33 +116,54 @@ export class AnimForgeMcpService {
 
   private async loadProject(projectId: string): Promise<Project> {
     const safeId = assertSafeId(projectId, 'project');
-    const fromDb = this.db.getProject(safeId);
-    if (fromDb) return fromDb;
-
     const projectDir = resolveProjectDir(this.workspaceDir, safeId);
     const manifestPath = path.join(projectDir, 'project.animforge.json');
-    let rawText: string;
-    let mtimeIso: string;
+    let diskStat: fsSync.Stats | null = null;
     try {
-      const [text, stat] = await Promise.all([
-        fs.readFile(manifestPath, 'utf-8'),
-        fs.stat(manifestPath),
-      ]);
-      rawText = text;
-      mtimeIso = stat.mtime.toISOString();
+      diskStat = await fs.stat(manifestPath);
     } catch {
-      throw new McpToolError('NOT_FOUND', `Project not found: ${safeId}`);
+      diskStat = null;
     }
 
-    const parsed = DiskManifestSchema.parse(JSON.parse(rawText));
-    for (const scene of parsed.scenes) {
-      assertSafeId(scene.id, 'scene');
-      if (scene.projectId !== safeId) {
-        throw new McpToolError('EXECUTION_FAILED', `Scene ${scene.id} projectId mismatch`);
+    const fromDb = this.db.getProject(safeId);
+    if (fromDb) {
+      if (
+        !diskStat ||
+        (fromDb.updatedAt && new Date(fromDb.updatedAt).getTime() >= diskStat.mtimeMs - 500)
+      ) {
+        return fromDb;
       }
     }
 
-    return {
+    if (!diskStat) {
+      throw new McpToolError('NOT_FOUND', `Project not found: ${safeId}`);
+    }
+
+    let rawText: string;
+    const mtimeIso = diskStat.mtime.toISOString();
+    try {
+      rawText = await fs.readFile(manifestPath, 'utf-8');
+    } catch {
+      throw new McpToolError('EXECUTION_FAILED', `Failed to read project manifest for ${safeId}`);
+    }
+
+    let parsed: z.infer<typeof DiskManifestSchema>;
+    try {
+      parsed = DiskManifestSchema.parse(JSON.parse(rawText));
+      for (const scene of parsed.scenes) {
+        assertSafeId(scene.id, 'scene');
+        if (scene.projectId !== safeId) {
+          throw new McpToolError('EXECUTION_FAILED', `Scene ${scene.id} projectId mismatch`);
+        }
+      }
+    } catch (err: unknown) {
+      throw new McpToolError(
+        'EXECUTION_FAILED',
+        `Invalid project manifest for ${safeId}: ${err instanceof Error ? err.message : String(err)}`
+      );
+    }
+
+    const project: Project = {
       id: safeId,
       name: parsed.config.name,
       prompt: parsed.config.prompt,
@@ -157,14 +171,16 @@ export class AnimForgeMcpService {
       height: parsed.config.height,
       fps: parsed.config.fps,
       preferredEngine: parsed.config.preferredEngine,
-      status: parsed.scenes.length > 0 ? 'scenes_planned' : 'created',
+      status: parsed.status ?? (parsed.scenes.length > 0 ? 'scenes_planned' : 'created'),
       ...(parsed.storyboard ? { storyboard: parsed.storyboard } : {}),
       characters: parsed.characters,
       assets: parsed.assets,
       scenes: parsed.scenes,
-      createdAt: mtimeIso,
-      updatedAt: mtimeIso,
+      createdAt: fromDb?.createdAt ?? mtimeIso,
+      updatedAt: parsed.updatedAt ?? mtimeIso,
     };
+    this.db.saveProject(project);
+    return project;
   }
 
   private async persistProject(project: Project): Promise<Project> {
@@ -225,7 +241,7 @@ export class AnimForgeMcpService {
 
   async listProjects(rawInput: unknown): Promise<Record<string, unknown>> {
     const input = ListProjectsInputSchema.parse(rawInput ?? {});
-    const projects = this.db.listProjects();
+    const projects = this.db.listProjects(this.projectsRoot);
     return {
       ok: true,
       total: projects.length,

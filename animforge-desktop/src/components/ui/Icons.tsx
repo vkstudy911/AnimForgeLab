@@ -490,3 +490,20 @@ export function ScissorsIcon(p: IconProps) {
     </Svg>
   );
 }
+
+export function RefreshIcon(p: IconProps) {
+  return (
+    <Svg {...p}>
+      <path d="M21.5 2v6h-6M2.5 22v-6h6M2 11.5a10 10 0 0 1 18.8-4.3M22 12.5a10 10 0 0 1-18.8 4.2" />
+    </Svg>
+  );
+}
+
+export function EditIcon(p: IconProps) {
+  return (
+    <Svg {...p}>
+      <path d="M12 20h9" />
+      <path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z" />
+    </Svg>
+  );
+}

@@ -14,6 +14,7 @@ import {
   Asset,
   AssetSchema,
   CharacterSchema,
+  DiskManifestSchema,
   Project,
   ProjectConfigSchema,
   ProjectSchema,
@@ -150,28 +151,6 @@ const PreviewProjectParamsSchema = z.object({
   sceneId: z.string().optional(),
 });
 
-const DiskManifestSchema = z.object({
-  config: ProjectConfigSchema,
-  status: ProjectSchema.shape.status.nullish().transform((v) => v ?? undefined),
-  updatedAt: z
-    .string()
-    .nullish()
-    .transform((v) => v ?? undefined),
-  storyboard: StoryboardSchema.nullish().transform((v) => v ?? undefined),
-  characters: z
-    .array(CharacterSchema)
-    .nullish()
-    .transform((v) => v ?? []),
-  assets: z
-    .array(AssetSchema)
-    .nullish()
-    .transform((v) => v ?? []),
-  scenes: z
-    .array(SceneSchema)
-    .nullish()
-    .transform((v) => v ?? []),
-});
-
 let workerAssetSeq = 0;
 function nextWorkerId(prefix: string): string {
   workerAssetSeq = (workerAssetSeq + 1) % 10000;
@@ -240,27 +219,34 @@ async function loadProjectFromDbOrDisk(
   workspaceDir: string,
   safeProjectId: string
 ): Promise<Project> {
-  const fromDb = db.getProject(safeProjectId);
-  if (fromDb) {
-    return fromDb;
-  }
-
   const projectDir = resolveProjectDir(workspaceDir, safeProjectId);
   const manifestPath = path.join(projectDir, 'project.animforge.json');
-  let text: string;
-  let mtimeIso: string;
+  let diskStat: fsSync.Stats | null = null;
   try {
-    const [contents, stat] = await Promise.all([
-      fs.readFile(manifestPath, 'utf-8'),
-      fs.stat(manifestPath),
-    ]);
-    text = contents;
-    mtimeIso = stat.mtime.toISOString();
-  } catch (err: unknown) {
-    const code = (err as NodeJS.ErrnoException | undefined)?.code;
-    if (code === 'ENOENT' || code === 'ENOTDIR') {
-      throw new Error(`Project not found: ${safeProjectId}`);
+    diskStat = await fs.stat(manifestPath);
+  } catch {
+    diskStat = null;
+  }
+
+  const fromDb = db.getProject(safeProjectId);
+  if (fromDb) {
+    if (
+      !diskStat ||
+      (fromDb.updatedAt && new Date(fromDb.updatedAt).getTime() >= diskStat.mtimeMs - 500)
+    ) {
+      return fromDb;
     }
+  }
+
+  if (!diskStat) {
+    throw new Error(`Project not found: ${safeProjectId}`);
+  }
+
+  let text: string;
+  const mtimeIso = diskStat.mtime.toISOString();
+  try {
+    text = await fs.readFile(manifestPath, 'utf-8');
+  } catch (err: unknown) {
     throw new Error(`Invalid project manifest for ${safeProjectId}: ${toErrorMessage(err)}`);
   }
 
@@ -277,7 +263,7 @@ async function loadProjectFromDbOrDisk(
     throw new Error(`Invalid project manifest for ${safeProjectId}: ${toErrorMessage(err)}`);
   }
 
-  return {
+  const loadedProject: Project = {
     id: safeProjectId,
     name: manifest.config.name,
     prompt: manifest.config.prompt,
@@ -290,9 +276,11 @@ async function loadProjectFromDbOrDisk(
     characters: manifest.characters,
     assets: manifest.assets,
     scenes: manifest.scenes,
-    createdAt: mtimeIso,
+    createdAt: fromDb?.createdAt ?? mtimeIso,
     updatedAt: manifest.updatedAt ?? mtimeIso,
   };
+  db.saveProject(loadedProject);
+  return loadedProject;
 }
 
 export async function runWorker(workspaceDir: string): Promise<void> {
@@ -378,7 +366,7 @@ export async function runWorker(workspaceDir: string): Promise<void> {
       }
 
       case 'list_projects': {
-        return { projects: db.listProjects() };
+        return { projects: db.listProjects(projectsRoot) };
       }
 
       case 'create_project': {

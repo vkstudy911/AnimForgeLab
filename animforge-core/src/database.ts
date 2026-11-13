@@ -3,6 +3,7 @@ import { DatabaseSync } from 'node:sqlite';
 import * as path from 'node:path';
 import * as fs from 'node:fs';
 import {
+  DiskManifestSchema,
   Project,
   ProjectSchema,
   RenderJob,
@@ -95,6 +96,61 @@ export class AnimForgeDatabase {
     );
   }
 
+  reconcileDiskProjects(projectsRoot: string): void {
+    if (!fs.existsSync(projectsRoot)) return;
+    try {
+      const entries = fs.readdirSync(projectsRoot, { withFileTypes: true });
+      for (const entry of entries) {
+        if (!entry.isDirectory()) continue;
+        const projectId = entry.name;
+        if (projectId.startsWith('.')) continue;
+        const manifestPath = path.join(projectsRoot, projectId, 'project.animforge.json');
+        if (!fs.existsSync(manifestPath)) continue;
+
+        try {
+          const stat = fs.statSync(manifestPath);
+          const stmt = this.db.prepare('SELECT updated_at FROM projects WHERE id = ?');
+          const row = stmt.get(projectId) as { updated_at: string } | undefined;
+          if (row && row.updated_at) {
+            const dbTime = new Date(row.updated_at).getTime();
+            if (stat.mtimeMs <= dbTime + 500) {
+              continue;
+            }
+          }
+
+          const rawText = fs.readFileSync(manifestPath, 'utf-8');
+          const manifest = DiskManifestSchema.parse(JSON.parse(rawText));
+          for (const scene of manifest.scenes) {
+            if (scene.projectId !== projectId) {
+              throw new Error(`scene ${scene.id} projectId mismatch`);
+            }
+          }
+          const project: Project = {
+            id: projectId,
+            name: manifest.config.name,
+            prompt: manifest.config.prompt,
+            width: manifest.config.width,
+            height: manifest.config.height,
+            fps: manifest.config.fps,
+            preferredEngine: manifest.config.preferredEngine,
+            status: manifest.status ?? (manifest.scenes.length > 0 ? 'scenes_planned' : 'created'),
+            ...(manifest.storyboard ? { storyboard: manifest.storyboard } : {}),
+            characters: manifest.characters,
+            assets: manifest.assets,
+            scenes: manifest.scenes,
+            createdAt: stat.birthtimeMs > 0 ? stat.birthtime.toISOString() : stat.mtime.toISOString(),
+            updatedAt: manifest.updatedAt ?? stat.mtime.toISOString(),
+          };
+          this.saveProject(project);
+        } catch {
+          continue;
+        }
+      }
+    } catch {
+      // Ignore directory access error
+    }
+  }
+
   getProject(id: string): Project | null {
     const stmt = this.db.prepare('SELECT data FROM projects WHERE id = ?');
     const row = stmt.get(id);
@@ -102,7 +158,10 @@ export class AnimForgeDatabase {
     return ProjectSchema.parse(JSON.parse(row.data));
   }
 
-  listProjects(): ProjectSummary[] {
+  listProjects(projectsRoot?: string): ProjectSummary[] {
+    if (projectsRoot) {
+      this.reconcileDiskProjects(projectsRoot);
+    }
     const stmt = this.db.prepare('SELECT data FROM projects ORDER BY updated_at DESC');
     const rows = stmt.all();
     const summaries: ProjectSummary[] = [];

@@ -536,9 +536,16 @@ export function StudioProvider({ children }: { children: React.ReactNode }) {
     const onHashChange = () => {
       setActiveWorkspace(readHashWorkspace());
     };
+    const onFocus = () => {
+      void studio.refreshProjects();
+    };
     window.addEventListener('hashchange', onHashChange);
-    return () => window.removeEventListener('hashchange', onHashChange);
-  }, []);
+    window.addEventListener('focus', onFocus);
+    return () => {
+      window.removeEventListener('hashchange', onHashChange);
+      window.removeEventListener('focus', onFocus);
+    };
+  }, [studio.refreshProjects]);
 
   const navigate = useCallback((workspace: WorkspaceId) => {
     setActiveWorkspace(workspace);
@@ -597,9 +604,24 @@ export function StudioProvider({ children }: { children: React.ReactNode }) {
     async (customMessage?: string, projectOverride?: ProjectDetail): Promise<ProjectDetail | null> => {
       const target = projectOverride ?? draftRef.current;
       if (!target) return null;
+      const matchingSummary = studio.projects.find((p) => p.id === target.id);
+      if (
+        matchingSummary &&
+        target.updatedAt &&
+        matchingSummary.updatedAt &&
+        new Date(matchingSummary.updatedAt).getTime() > new Date(target.updatedAt).getTime() + 1000
+      ) {
+        const proceed =
+          typeof window !== 'undefined' && typeof window.confirm === 'function'
+            ? window.confirm(
+                `Warning: Project "${target.name}" was modified externally (${matchingSummary.updatedAt}).\n\nDo you want to overwrite those external changes with your current draft?`
+              )
+            : true;
+        if (!proceed) return null;
+      }
       return studioSaveProjectDraft(target, customMessage);
     },
-    [studioSaveProjectDraft]
+    [studioSaveProjectDraft, studio.projects]
   );
 
   const discardDraft = useCallback(() => {

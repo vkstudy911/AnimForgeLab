@@ -121,6 +121,19 @@
 
 ---
 
+## Critical Integration Fix — Unified Projects, MCP & Project Editing (2026-11-13)
+
+| Task | Scope | Status | Owners | Verification Evidence |
+| :--- | :--- | :--- | :--- | :--- |
+| **Phase 1 Root Cause Investigation** | Comprehensive diagnosis of MCP project creation, desktop GUI search paths, schema alignment, in-memory caching, and reproduction with target project `proj_1794470257338_1` (`Dancer`) | `DONE` | Coordinator | `docs/integration/PROJECT_MCP_ROOT_CAUSE_REPORT.md` answering all 10 architectural questions with exact file lines |
+| **Phase 2 Unified Project Architecture** | Two-way SQLite (`animforge.db`) & disk (`project.animforge.json`) reconciliation (`reconcileDiskProjects`), mtime-aware loading, shared `DiskManifestSchema` export in `schemas/project.ts`, unified MCP tool integration | `DONE` | Coordinator | `docs/integration/UNIFIED_PROJECT_ARCHITECTURE.md`, `AnimForgeDatabase.reconcileDiskProjects` unit tests (`36/36` core tests pass) |
+| **Phase 3 Desktop Project Manager** | `useEffect` mount auto-refresh, manual **Refresh** button with loading/spinning state, **Edit** action on project cards, right sidebar mode toggle (**+ New Project** vs **Edit Details**), accessible forms, empty/loading/error states | `DONE` | Coordinator | `ManagementWorkspaces.test.tsx` (`11/11` pass), `ProjectManager.tsx` with full backward compatibility |
+| **Phase 4 Project Editing Workflow** | Artifact detection on project load (HEAD request for `bundle/index.html` and `output.mp4` setting `previewRev = 1` and `videoRev = 1`), window focus auto-refresh in `StudioContext`, external modification conflict detection in `saveDraft`, `openProject` with `forceReload` | `DONE` | Coordinator | `docs/integration/PROJECT_EDITING_IMPLEMENTATION.md`, Vitest suite (`59/59` pass), Vite build pass |
+| **Phase 5 & 6 MCP & GUI Verification** | Verification of all 16 AnimForge MCP tools using the shared data architecture, bidirectional state reflection, zero project duplication or ID mutation | `DONE` | Coordinator | `integration_mcp_gui.test.ts` (Tests 1–4 pass in `animforge-core`) |
+| **Phase 7 End-to-End Verification** | 5 comprehensive integration test suites: (1) MCP to GUI creation, (2) GUI to MCP persistence, (3) MCP update to GUI refresh, (4) Existing `Dancer` integrity verification, (5) Full regression suite across core, desktop, cargo, and vite | `DONE` | Coordinator | `docs/integration/PROJECT_MCP_E2E_REPORT.md`, `40/40` core tests pass, `59/59` desktop tests pass, `Dancer` intact |
+
+---
+
 ## Decision & Ruling Log
 
 - **2026-11-11 — Skill Execution Mapping:** Verified Superpowers (`writing-plans`, `subagent-driven-development`, `executing-plans`, `test-driven-development`, `systematic-debugging`, `verification-before-completion`) and Ponytail (`ponytail`, `ponytail-review`) skills are installed and inspected. Mapped subagent independent reviews to `invoke_subagent`.

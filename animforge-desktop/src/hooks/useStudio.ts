@@ -100,6 +100,8 @@ export function useStudio() {
 
   const unmountedRef = useRef(false);
   const projectSeqRef = useRef(0);
+  const previewBaseUrlRef = useRef<string | null>(null);
+  previewBaseUrlRef.current = previewBaseUrl;
   const activeProjectRef = useRef<ProjectDetail | null>(null);
   activeProjectRef.current = activeProject;
   const renderingProjectIdRef = useRef<string | null>(null);
@@ -212,11 +214,26 @@ export function useStudio() {
       setError(null);
       try {
         const loaded = await invoke<ProjectDetail>('project_load', { projectId });
+        let hasBundle = false;
+        let hasVideo = false;
+        const currentBaseUrl = previewBaseUrlRef.current;
+        if (currentBaseUrl) {
+          try {
+            const [bRes, vRes] = await Promise.all([
+              fetch(`${currentBaseUrl}/projects/${loaded.id}/bundle/index.html`, { method: 'HEAD' }).catch(() => null),
+              fetch(`${currentBaseUrl}/projects/${loaded.id}/output.mp4`, { method: 'HEAD' }).catch(() => null),
+            ]);
+            hasBundle = Boolean(bRes && bRes.ok);
+            hasVideo = Boolean(vRes && vRes.ok);
+          } catch {
+            // Ignore probe errors and fallback to 0
+          }
+        }
         if (unmountedRef.current || seq !== projectSeqRef.current) return null;
         setActiveProject(loaded);
         setPreviewResult(null);
-        setPreviewRev(0);
-        setVideoRev(0);
+        setPreviewRev(hasBundle ? 1 : 0);
+        setVideoRev(hasVideo ? 1 : 0);
         setRenderProgress(null);
         setStatusMessage(`Loaded project "${loaded.name}".`);
         return loaded;

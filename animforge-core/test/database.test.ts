@@ -83,3 +83,63 @@ test('AnimForgeDatabase deleteProject removes project + render_jobs transactiona
     await fs.rm(tmpParent, { recursive: true, force: true });
   }
 });
+
+test('AnimForgeDatabase reconcileDiskProjects synchronizes unindexed disk projects and newer manifests into SQLite', async () => {
+  const tmpParent = await fs.mkdtemp(path.join(os.tmpdir(), 'af db reconcile '));
+  const projectsDir = path.join(tmpParent, 'projects');
+  const dbPath = path.join(projectsDir, 'animforge.db');
+  await fs.mkdir(projectsDir, { recursive: true });
+  const db = new AnimForgeDatabase(dbPath);
+
+  try {
+    // 1. Initial db is empty
+    assert.equal(db.listProjects().length, 0);
+
+    // 2. Add a project on disk without adding to db
+    const proj1Dir = path.join(projectsDir, 'proj_disk_1');
+    await fs.mkdir(proj1Dir, { recursive: true });
+    await fs.writeFile(
+      path.join(proj1Dir, 'project.animforge.json'),
+      JSON.stringify({
+        config: { name: 'Disk Project One', prompt: 'Prompt 1', width: 1920, height: 1080, fps: 30, preferredEngine: 'givemotion' },
+        scenes: [],
+        characters: [],
+        assets: [],
+      }),
+      'utf-8'
+    );
+
+    // 3. listProjects without projectsDir returns 0
+    assert.equal(db.listProjects().length, 0);
+
+    // 4. listProjects with projectsDir reconciles the project into SQLite
+    const reconciled = db.listProjects(projectsDir);
+    assert.equal(reconciled.length, 1);
+    assert.equal(reconciled[0].id, 'proj_disk_1');
+    assert.equal(reconciled[0].name, 'Disk Project One');
+
+    // 5. Subsequent getProject finds it in SQLite
+    const loaded = db.getProject('proj_disk_1');
+    assert.equal(loaded?.name, 'Disk Project One');
+
+    // 6. External update to disk manifest updates SQLite when reconciled
+    await new Promise((r) => setTimeout(r, 600)); // ensure mtime advances > 500ms
+    await fs.writeFile(
+      path.join(proj1Dir, 'project.animforge.json'),
+      JSON.stringify({
+        config: { name: 'Disk Project Renamed', prompt: 'Prompt 1', width: 1920, height: 1080, fps: 30, preferredEngine: 'givemotion' },
+        scenes: [],
+        characters: [],
+        assets: [],
+      }),
+      'utf-8'
+    );
+
+    const refreshed = db.listProjects(projectsDir);
+    assert.equal(refreshed.length, 1);
+    assert.equal(refreshed[0].name, 'Disk Project Renamed');
+  } finally {
+    db.close();
+    await fs.rm(tmpParent, { recursive: true, force: true });
+  }
+});

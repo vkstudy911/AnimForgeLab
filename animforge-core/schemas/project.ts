@@ -30,5 +30,28 @@ export const ProjectSchema = z.object({
   updatedAt: z.string().datetime(),
 });
 
+export const DiskManifestSchema = z.object({
+  config: ProjectConfigSchema,
+  status: ProjectSchema.shape.status.nullish().transform((v) => v ?? undefined),
+  updatedAt: z
+    .string()
+    .nullish()
+    .transform((v) => v ?? undefined),
+  storyboard: StoryboardSchema.nullish().transform((v) => v ?? undefined),
+  characters: z
+    .array(CharacterSchema)
+    .nullish()
+    .transform((v) => v ?? []),
+  assets: z
+    .array(AssetSchema)
+    .nullish()
+    .transform((v) => v ?? []),
+  scenes: z
+    .array(SceneSchema)
+    .nullish()
+    .transform((v) => v ?? []),
+});
+
 export type ProjectConfig = z.infer<typeof ProjectConfigSchema>;
 export type Project = z.infer<typeof ProjectSchema>;
+export type DiskManifest = z.infer<typeof DiskManifestSchema>;

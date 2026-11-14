@@ -475,4 +475,205 @@ describe('CharacterStudio Workspace & Rigby2D Integration', () => {
     const canvas = document.querySelector('canvas');
     expect(canvas).toBeTruthy();
   });
+
+  it('renders Simple PNG Animation Studio default screen with 9 visual animation cards, duration slider and export CTA', async () => {
+    render(
+      <StudioProvider>
+        <TestHarness workspace="characters">
+          <CharacterStudio />
+        </TestHarness>
+      </StudioProvider>
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText('Aria Mage')).toBeTruthy();
+    });
+
+    // Simple Studio header & actions
+    expect(screen.getByRole('button', { name: /Simple Studio/i })).toBeTruthy();
+    expect(screen.getByRole('button', { name: /Advanced Rig Editor/i })).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Import PNG' })).toBeTruthy();
+    expect(screen.getAllByRole('button', { name: /Export Video/i }).length).toBeGreaterThanOrEqual(1);
+
+    // 9 Visual Animation Cards are present
+    const cardNames = ['Idle', 'Walk', 'Run', 'Dance', 'Jump', 'Wave', 'Happy', 'Sad', 'Surprise'];
+    for (const name of cardNames) {
+      expect(screen.getByRole('button', { name: `Animation card: ${name}` })).toBeTruthy();
+    }
+
+    // Transport controls
+    expect(screen.getByRole('button', { name: 'Play Preview' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: /Toggle preview loop/i })).toBeTruthy();
+    expect(screen.getByRole('slider', { name: 'Preview playhead scrubber' })).toBeTruthy();
+    expect(screen.getByRole('slider', { name: 'Animation duration slider' })).toBeTruthy();
+  });
+
+  it('immediately applies animation and triggers playback when clicking Dance visual card', async () => {
+    render(
+      <StudioProvider>
+        <TestHarness workspace="characters">
+          <CharacterStudio />
+        </TestHarness>
+      </StudioProvider>
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText('Aria Mage')).toBeTruthy();
+    });
+
+    const danceCard = screen.getByRole('button', { name: 'Animation card: Dance' });
+    fireEvent.click(danceCard);
+
+    // Active motion updates to DANCE
+    expect(screen.getByText('DANCE')).toBeTruthy();
+    // Playback is active
+    expect(screen.getByRole('button', { name: 'Pause Preview' })).toBeTruthy();
+  });
+
+  it('adjusts duration slider from 2s to 30s updating timeline limits', async () => {
+    render(
+      <StudioProvider>
+        <TestHarness workspace="characters">
+          <CharacterStudio />
+        </TestHarness>
+      </StudioProvider>
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText('Aria Mage')).toBeTruthy();
+    });
+
+    const durationSlider = screen.getByRole('slider', { name: 'Animation duration slider' }) as HTMLInputElement;
+    fireEvent.change(durationSlider, { target: { value: '10' } });
+    expect(durationSlider.value).toBe('10');
+    expect(screen.getByText('10.0s')).toBeTruthy();
+  });
+
+  it('imports transparent PNG, displays auto-preparation report with landmarks and prepares Smart Character Rig', async () => {
+    render(
+      <StudioProvider>
+        <TestHarness workspace="characters">
+          <CharacterStudio />
+        </TestHarness>
+      </StudioProvider>
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText('Aria Mage')).toBeTruthy();
+    });
+
+    const pngInput = screen.getByLabelText('Import Character PNG') as HTMLInputElement;
+    const samplePng = new File(['fake-png-data'], 'cyber_knight.png', { type: 'image/png' });
+
+    fireEvent.change(pngInput, { target: { files: [samplePng] } });
+
+    // Auto-preparation report dialog opens
+    await waitFor(() => {
+      expect(screen.getByText('Automatic Character Preparation Report')).toBeTruthy();
+      expect(screen.getByText('cyber_knight.png')).toBeTruthy();
+      expect(screen.getByText(/95% Confidence/i)).toBeTruthy();
+      expect(screen.getAllByText(/Smart Character Rig/i).length).toBeGreaterThanOrEqual(1);
+      expect(screen.getAllByText(/Quick Animate/i).length).toBeGreaterThanOrEqual(1);
+    });
+
+    // Confirm auto-preparation
+    const confirmBtn = screen.getByRole('button', { name: /Confirm & Animate/i });
+    fireEvent.click(confirmBtn);
+
+    // Dialog closes and new character becomes active
+    await waitFor(() => {
+      expect(screen.queryByText('Automatic Character Preparation Report')).toBeNull();
+      expect(screen.getByText('cyber_knight')).toBeTruthy();
+    });
+  });
+
+  it('detects opaque PNG and recommends Quick Animate whole-image transform', async () => {
+    render(
+      <StudioProvider>
+        <TestHarness workspace="characters">
+          <CharacterStudio />
+        </TestHarness>
+      </StudioProvider>
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText('Aria Mage')).toBeTruthy();
+    });
+
+    const pngInput = screen.getByLabelText('Import Character PNG') as HTMLInputElement;
+    const opaqueFile = new File(['fake-opaque-data'], 'badge_opaque.png', { type: 'image/png' });
+
+    fireEvent.change(pngInput, { target: { files: [opaqueFile] } });
+
+    await waitFor(() => {
+      expect(screen.getByText('Automatic Character Preparation Report')).toBeTruthy();
+      expect(screen.getByText(/Opaque background detected/i)).toBeTruthy();
+      expect(screen.getAllByText(/Whole-Image Transform/i).length).toBeGreaterThanOrEqual(1);
+    });
+
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+    expect(screen.queryByText('Automatic Character Preparation Report')).toBeNull();
+  });
+
+  it('opens Export Video dialog, chooses format & resolution, and performs video export', async () => {
+    render(
+      <StudioProvider>
+        <TestHarness workspace="characters">
+          <CharacterStudio />
+        </TestHarness>
+      </StudioProvider>
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText('Aria Mage')).toBeTruthy();
+    });
+
+    const exportBtn = screen.getAllByRole('button', { name: /Export Video/i })[0];
+    fireEvent.click(exportBtn);
+
+    // Export dialog opens
+    expect(screen.getByText('Export Character Animation Video')).toBeTruthy();
+    expect(screen.getByText(/Full HD/i)).toBeTruthy();
+
+    // Select GIF format
+    const gifBtn = screen.getByRole('button', { name: 'GIF' });
+    fireEvent.click(gifBtn);
+
+    // Click Export GIF
+    const startExportBtn = screen.getByRole('button', { name: 'Export GIF' });
+    fireEvent.click(startExportBtn);
+
+    // Export completes
+    await waitFor(() => {
+      expect(screen.getByText('Video Export Complete!')).toBeTruthy();
+    });
+
+    fireEvent.click(screen.getByRole('button', { name: 'Done' }));
+    expect(screen.queryByText('Export Character Animation Video')).toBeNull();
+  });
+
+  it('switches between Simple Studio and Advanced Rig Editor cleanly', async () => {
+    render(
+      <StudioProvider>
+        <TestHarness workspace="characters">
+          <CharacterStudio />
+        </TestHarness>
+      </StudioProvider>
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText('Aria Mage')).toBeTruthy();
+    });
+
+    const advancedBtn = screen.getByRole('button', { name: /Advanced Rig Editor/i });
+    const simpleBtn = screen.getByRole('button', { name: /Simple Studio/i });
+
+    // Switch to Advanced
+    fireEvent.click(advancedBtn);
+    expect(screen.getByRole('slider', { name: 'Animation playhead scrubber' })).toBeTruthy();
+
+    // Switch back to Simple
+    fireEvent.click(simpleBtn);
+    expect(screen.getByRole('slider', { name: 'Preview playhead scrubber' })).toBeTruthy();
+  });
 });

@@ -1,6 +1,22 @@
-import { ProjectConfig, Scene, RenderJob, RenderStatus } from '../schemas/index.js';
+import {
+  Character,
+  ProjectConfig,
+  RenderJob,
+  RenderStatus,
+  Scene,
+} from '../schemas/index.js';
 
 export type SceneConfig = Omit<Scene, 'id'> & { id?: string };
+
+export interface RenderProgressUpdate {
+  jobId?: string;
+  phase: 'open' | 'frames' | 'encode' | 'done';
+  progress: number;
+  done?: number;
+  total?: number;
+  fps?: number;
+  eta?: number | null;
+}
 
 export interface AnimationEngineAdapter {
   /**
@@ -14,9 +30,13 @@ export interface AnimationEngineAdapter {
   initialize(): Promise<void>;
 
   /**
-   * Create an isolated project structure for this engine
+   * Create an isolated project structure for this engine using caller-supplied canonical projectId
    */
-  createProject(config: ProjectConfig): Promise<string>;
+  createProject(
+    projectId: string,
+    config: ProjectConfig,
+    characters?: Character[]
+  ): Promise<string>;
 
   /**
    * Create or update a scene representation within the engine project
@@ -24,14 +44,17 @@ export interface AnimationEngineAdapter {
   createScene(config: SceneConfig): Promise<string>;
 
   /**
-   * Generate or launch a preview for the scene
+   * Generate, verify QA, or launch a preview for the scene
    */
   preview(sceneId: string): Promise<string>;
 
   /**
-   * Trigger rendering of the project to MP4
+   * Trigger rendering of the project to MP4 or engine output
    */
-  render(projectId: string): Promise<RenderJob>;
+  render(
+    projectId: string,
+    onProgress?: (info: RenderProgressUpdate) => void
+  ): Promise<RenderJob>;
 
   /**
    * Poll or inspect render job status
@@ -39,7 +62,17 @@ export interface AnimationEngineAdapter {
   getRenderStatus(jobId: string): Promise<RenderStatus>;
 
   /**
-   * Retrieve the final exported video path
+   * Retrieve the final exported output path
    */
   exportVideo(jobId: string): Promise<string>;
+
+  /**
+   * Cancel an active render for the given project if running
+   */
+  cancelRender?(projectId: string): Promise<boolean>;
+
+  /**
+   * Release any child processes or handles owned by the adapter
+   */
+  dispose?(): Promise<void>;
 }

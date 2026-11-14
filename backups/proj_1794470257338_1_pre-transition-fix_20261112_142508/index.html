@@ -1,0 +1,316 @@
+<!doctype html>
+<html lang="en" data-width="1280" data-height="720" data-fps="30">
+<head>
+<meta charset="utf-8">
+<title>Dancer</title>
+<style>
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0;
+    padding: 0;
+    background: #0b0f17;
+    color: #f8fafc;
+    font-family: Inter, system-ui, -apple-system, sans-serif;
+    overflow: hidden;
+  }
+  .scene {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: space-between;
+    padding: calc(var(--px, 1px) * 96) calc(var(--px, 1px) * 120);
+    gap: calc(var(--px, 1px) * 28);
+    background: radial-gradient(circle at 50% 45%, #16223b 0%, #0b0f17 75%);
+  }
+  .scene-header {
+    max-width: calc(var(--px, 1px) * 1280);
+    text-align: center;
+    z-index: 2;
+  }
+  .scene-title {
+    margin: 0 0 calc(var(--px, 1px) * 14) 0;
+    font-size: calc(var(--px, 1px) * 58);
+    line-height: 1.15;
+    font-weight: 700;
+    color: #f8fafc;
+    letter-spacing: -0.02em;
+  }
+  .scene-desc {
+    margin: 0;
+    font-size: calc(var(--px, 1px) * 32);
+    line-height: 1.4;
+    color: #cbd5e1;
+  }
+  .scene-stage {
+    flex: 1;
+    width: 100%;
+    min-height: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .af-actor {
+    width: min(360px, 42vw);
+    height: auto;
+    overflow: visible;
+  }
+  .af-body-root, .af-part {
+    transform-box: fill-box;
+  }
+  .af-body-root { transform-origin: 50% 90%; }
+  .af-head { transform-origin: 50% 90%; }
+  .af-arm-l { transform-origin: 60% 18%; }
+  .af-arm-r { transform-origin: 40% 18%; }
+  .af-leg-l, .af-leg-r { transform-origin: 50% 15%; }
+  .af-eye { transform-origin: 50% 50%; }
+  .af-mouth { transform-origin: 50% 50%; }
+
+  .af-actor--idle .af-body-root {
+    animation: af-idle 2.4s ease-in-out infinite;
+  }
+  .af-actor--walk .af-body-root {
+    animation: af-walk-bob 0.55s ease-in-out infinite;
+  }
+  .af-actor--walk .af-leg-l {
+    animation: af-leg-l 0.55s ease-in-out infinite;
+  }
+  .af-actor--walk .af-leg-r {
+    animation: af-leg-r 0.55s ease-in-out infinite;
+  }
+  .af-actor--walk .af-arm-l {
+    animation: af-leg-r 0.55s ease-in-out infinite;
+  }
+  .af-actor--run .af-body-root {
+    animation: af-walk-bob 0.34s ease-in-out infinite;
+  }
+  .af-actor--run .af-leg-l {
+    animation: af-leg-l 0.34s ease-in-out infinite;
+  }
+  .af-actor--run .af-leg-r {
+    animation: af-leg-r 0.34s ease-in-out infinite;
+  }
+  .af-actor--wave .af-arm-r {
+    animation: af-wave 0.75s ease-in-out var(--af-wave-delay, 0.2s) infinite alternate;
+  }
+  .af-actor--blink .af-eye {
+    animation: af-blink 2.8s ease-in-out var(--af-blink-delay, 0.6s) infinite;
+  }
+  .af-actor--look_around .af-head {
+    animation: af-look var(--af-look_around-dur, 1.5s) ease-in-out var(--af-look_around-delay, 0.4s) both;
+  }
+  .af-actor--smile .af-mouth {
+    animation: af-smile 0.6s ease-out var(--af-smile-delay, 0.5s) both;
+  }
+
+  @keyframes af-idle {
+    0%, 100% { transform: translateY(0) scaleY(1); }
+    50% { transform: translateY(-5px) scaleY(1.015); }
+  }
+  @keyframes af-walk-bob {
+    0%, 100% { transform: translateY(0) translateX(-4px); }
+    50% { transform: translateY(-8px) translateX(4px); }
+  }
+  @keyframes af-leg-l {
+    0%, 100% { transform: rotate(-16deg); }
+    50% { transform: rotate(16deg); }
+  }
+  @keyframes af-leg-r {
+    0%, 100% { transform: rotate(16deg); }
+    50% { transform: rotate(-16deg); }
+  }
+  @keyframes af-wave {
+    0% { transform: rotate(-115deg); }
+    100% { transform: rotate(-155deg); }
+  }
+  @keyframes af-blink {
+    0%, 88%, 100% { transform: scaleY(1); }
+    94% { transform: scaleY(0.1); }
+  }
+  @keyframes af-look {
+    0%, 100% { transform: rotate(0deg); }
+    30% { transform: rotate(-8deg) translateX(-4px); }
+    70% { transform: rotate(8deg) translateX(4px); }
+  }
+  @keyframes af-smile {
+    0% { transform: scale(1); }
+    100% { transform: scale(1.18); }
+  }
+</style>
+</head>
+<body>
+  <main data-sequence>
+    <section class="scene" id="scene_1" data-duration="4">
+      <header class="scene-header">
+        <h1 class="scene-title" data-enter="rise">Arrival &amp; Wonder</h1>
+        <p class="scene-desc" data-enter="fade-up 0.6 0.15">A cute green cartoon character enters the cozy room and looks around curiously.</p>
+      </header>
+      <div class="scene-stage">
+        <svg class="af-actor af-actor--walk af-actor--look_around af-actor--blink" style="--af-walk-delay:0s;--af-walk-dur:2s;--af-look_around-delay:2s;--af-look_around-dur:1.5s;--af-blink-delay:1.2s;--af-blink-dur:0.3s" viewBox="0 0 360 300" width="360" height="300" role="img" aria-hidden="true">
+  
+  <g transform="translate(0, 0)">
+    <ellipse cx="170" cy="268" rx="58" ry="12" fill="rgba(2, 6, 23, 0.55)"/>
+    <g class="af-body-root">
+      <g class="af-part af-leg-l" data-part="leg_left">
+        <rect x="136" y="212" width="24" height="50" rx="12" fill="#15803d"/>
+        <ellipse cx="146" cy="260" rx="16" ry="9" fill="#16a34a"/>
+      </g>
+      <g class="af-part af-leg-r" data-part="leg_right">
+        <rect x="180" y="212" width="24" height="50" rx="12" fill="#15803d"/>
+        <ellipse cx="194" cy="260" rx="16" ry="9" fill="#16a34a"/>
+      </g>
+      <g class="af-part af-arm-l" data-part="arm_left">
+        <rect x="92" y="156" width="24" height="58" rx="12" fill="#16a34a"/>
+        <circle cx="104" cy="212" r="11" fill="#86efac"/>
+      </g>
+      <g class="af-part af-torso" data-part="torso">
+        <rect x="118" y="144" width="104" height="82" rx="42" fill="#22c55e"/>
+        <ellipse cx="170" cy="188" rx="30" ry="26" fill="#86efac" opacity="0.45"/>
+      </g>
+      <g class="af-part af-head" data-part="head">
+        <line x1="170" y1="62" x2="170" y2="38" stroke="#16a34a" stroke-width="6" stroke-linecap="round"/>
+        <circle cx="170" cy="34" r="9" fill="#86efac"/>
+        <ellipse cx="170" cy="112" rx="58" ry="50" fill="#22c55e"/>
+        <ellipse cx="148" cy="96" rx="18" ry="10" fill="#86efac" opacity="0.35"/>
+        <g class="af-part af-eye af-eye-l" data-part="eye_left">
+          <ellipse cx="148" cy="108" rx="13" ry="15" fill="#ffffff"/>
+          <circle cx="150" cy="109" r="7" fill="#0f172a"/>
+          <circle cx="153" cy="105" r="2.8" fill="#ffffff"/>
+        </g>
+        <g class="af-part af-eye af-eye-r" data-part="eye_right">
+          <ellipse cx="192" cy="108" rx="13" ry="15" fill="#ffffff"/>
+          <circle cx="190" cy="109" r="7" fill="#0f172a"/>
+          <circle cx="193" cy="105" r="2.8" fill="#ffffff"/>
+        </g>
+        <path class="af-part af-mouth" data-part="mouth" d="M 156 138 Q 170 146 184 138" fill="none" stroke="#0f172a" stroke-width="5" stroke-linecap="round"/>
+      </g>
+      <g class="af-part af-arm-r" data-part="arm_right">
+        <rect x="224" y="156" width="24" height="58" rx="12" fill="#16a34a"/>
+        <circle cx="236" cy="212" r="11" fill="#86efac"/>
+      </g>
+    </g>
+  </g>
+</svg>
+      </div>
+    </section>
+    <section class="scene" id="scene_2" data-duration="4" data-camera="push 1.15" data-transition="fade 0.5">
+      <header class="scene-header">
+        <h1 class="scene-title" data-enter="rise">Friendly Wave &amp; Discovery</h1>
+        <p class="scene-desc" data-enter="fade-up 0.6 0.15">Character notices the audience, smiles broadly, and gives a cheerful hand wave.</p>
+      </header>
+      <div class="scene-stage">
+        <svg class="af-actor af-actor--wave af-actor--smile af-actor--blink" style="--af-wave-delay:0.5s;--af-wave-dur:2.5s;--af-smile-delay:0.8s;--af-smile-dur:3s;--af-blink-delay:2.2s;--af-blink-dur:0.3s" viewBox="0 0 360 300" width="360" height="300" role="img" aria-hidden="true">
+  
+  <g transform="translate(0, 0)">
+    <ellipse cx="170" cy="268" rx="58" ry="12" fill="rgba(2, 6, 23, 0.55)"/>
+    <g class="af-body-root">
+      <g class="af-part af-leg-l" data-part="leg_left">
+        <rect x="136" y="212" width="24" height="50" rx="12" fill="#15803d"/>
+        <ellipse cx="146" cy="260" rx="16" ry="9" fill="#16a34a"/>
+      </g>
+      <g class="af-part af-leg-r" data-part="leg_right">
+        <rect x="180" y="212" width="24" height="50" rx="12" fill="#15803d"/>
+        <ellipse cx="194" cy="260" rx="16" ry="9" fill="#16a34a"/>
+      </g>
+      <g class="af-part af-arm-l" data-part="arm_left">
+        <rect x="92" y="156" width="24" height="58" rx="12" fill="#16a34a"/>
+        <circle cx="104" cy="212" r="11" fill="#86efac"/>
+      </g>
+      <g class="af-part af-torso" data-part="torso">
+        <rect x="118" y="144" width="104" height="82" rx="42" fill="#22c55e"/>
+        <ellipse cx="170" cy="188" rx="30" ry="26" fill="#86efac" opacity="0.45"/>
+      </g>
+      <g class="af-part af-head" data-part="head">
+        <line x1="170" y1="62" x2="170" y2="38" stroke="#16a34a" stroke-width="6" stroke-linecap="round"/>
+        <circle cx="170" cy="34" r="9" fill="#86efac"/>
+        <ellipse cx="170" cy="112" rx="58" ry="50" fill="#22c55e"/>
+        <ellipse cx="148" cy="96" rx="18" ry="10" fill="#86efac" opacity="0.35"/>
+        <g class="af-part af-eye af-eye-l" data-part="eye_left">
+          <ellipse cx="148" cy="108" rx="13" ry="15" fill="#ffffff"/>
+          <circle cx="150" cy="109" r="7" fill="#0f172a"/>
+          <circle cx="153" cy="105" r="2.8" fill="#ffffff"/>
+        </g>
+        <g class="af-part af-eye af-eye-r" data-part="eye_right">
+          <ellipse cx="192" cy="108" rx="13" ry="15" fill="#ffffff"/>
+          <circle cx="190" cy="109" r="7" fill="#0f172a"/>
+          <circle cx="193" cy="105" r="2.8" fill="#ffffff"/>
+        </g>
+        <path class="af-part af-mouth" data-part="mouth" d="M 152 135 Q 170 154 188 135" fill="none" stroke="#0f172a" stroke-width="5" stroke-linecap="round"/>
+      </g>
+      <g class="af-part af-arm-r" data-part="arm_right">
+        <rect x="224" y="156" width="24" height="58" rx="12" fill="#16a34a"/>
+        <circle cx="236" cy="212" r="11" fill="#86efac"/>
+      </g>
+    </g>
+  </g>
+</svg>
+      </div>
+    </section>
+    <section class="scene" id="scene_3" data-duration="4.5" data-camera="push 1.2" data-transition="fade 0.5">
+      <header class="scene-header">
+        <h1 class="scene-title" data-enter="rise">The Glowing Door</h1>
+        <p class="scene-desc" data-enter="fade-up 0.6 0.15">A magical glowing door illuminates at the back; character turns and walks toward the light.</p>
+      </header>
+      <div class="scene-stage">
+        <svg class="af-actor af-actor--walk" style="--af-walk-delay:0.5s;--af-walk-dur:4s" viewBox="0 0 360 300" width="360" height="300" role="img" aria-hidden="true">
+  <g class="af-prop-door" aria-hidden="true">
+        <defs>
+          <radialGradient id="af-door-glow-scene_3" cx="50%" cy="50%" r="55%">
+            <stop offset="0%" stop-color="#fef08a" stop-opacity="0.95"/>
+            <stop offset="55%" stop-color="#f59e0b" stop-opacity="0.45"/>
+            <stop offset="100%" stop-color="#f59e0b" stop-opacity="0"/>
+          </radialGradient>
+        </defs>
+        <ellipse cx="292" cy="180" rx="68" ry="96" fill="url(#af-door-glow-scene_3)"/>
+        <rect x="256" y="102" width="72" height="148" rx="36" fill="#fde047" stroke="#f59e0b" stroke-width="5"/>
+        <rect x="266" y="114" width="52" height="128" rx="26" fill="#fef9c3"/>
+      </g>
+  <g transform="translate(-36, 0)">
+    <ellipse cx="170" cy="268" rx="58" ry="12" fill="rgba(2, 6, 23, 0.55)"/>
+    <g class="af-body-root">
+      <g class="af-part af-leg-l" data-part="leg_left">
+        <rect x="136" y="212" width="24" height="50" rx="12" fill="#15803d"/>
+        <ellipse cx="146" cy="260" rx="16" ry="9" fill="#16a34a"/>
+      </g>
+      <g class="af-part af-leg-r" data-part="leg_right">
+        <rect x="180" y="212" width="24" height="50" rx="12" fill="#15803d"/>
+        <ellipse cx="194" cy="260" rx="16" ry="9" fill="#16a34a"/>
+      </g>
+      <g class="af-part af-arm-l" data-part="arm_left">
+        <rect x="92" y="156" width="24" height="58" rx="12" fill="#16a34a"/>
+        <circle cx="104" cy="212" r="11" fill="#86efac"/>
+      </g>
+      <g class="af-part af-torso" data-part="torso">
+        <rect x="118" y="144" width="104" height="82" rx="42" fill="#22c55e"/>
+        <ellipse cx="170" cy="188" rx="30" ry="26" fill="#86efac" opacity="0.45"/>
+      </g>
+      <g class="af-part af-head" data-part="head">
+        <line x1="170" y1="62" x2="170" y2="38" stroke="#16a34a" stroke-width="6" stroke-linecap="round"/>
+        <circle cx="170" cy="34" r="9" fill="#86efac"/>
+        <ellipse cx="170" cy="112" rx="58" ry="50" fill="#22c55e"/>
+        <ellipse cx="148" cy="96" rx="18" ry="10" fill="#86efac" opacity="0.35"/>
+        <g class="af-part af-eye af-eye-l" data-part="eye_left">
+          <ellipse cx="148" cy="108" rx="13" ry="15" fill="#ffffff"/>
+          <circle cx="150" cy="109" r="7" fill="#0f172a"/>
+          <circle cx="153" cy="105" r="2.8" fill="#ffffff"/>
+        </g>
+        <g class="af-part af-eye af-eye-r" data-part="eye_right">
+          <ellipse cx="192" cy="108" rx="13" ry="15" fill="#ffffff"/>
+          <circle cx="190" cy="109" r="7" fill="#0f172a"/>
+          <circle cx="193" cy="105" r="2.8" fill="#ffffff"/>
+        </g>
+        <path class="af-part af-mouth" data-part="mouth" d="M 156 138 Q 170 146 184 138" fill="none" stroke="#0f172a" stroke-width="5" stroke-linecap="round"/>
+      </g>
+      <g class="af-part af-arm-r" data-part="arm_right">
+        <rect x="224" y="156" width="24" height="58" rx="12" fill="#16a34a"/>
+        <circle cx="236" cy="212" r="11" fill="#86efac"/>
+      </g>
+    </g>
+  </g>
+</svg>
+      </div>
+    </section>
+  </main>
+</body>
+</html>

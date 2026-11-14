@@ -1,0 +1,15 @@
+{
+  "name": "animforge-studio",
+  "private": true,
+  "version": "0.1.0",
+  "description": "AnimForge Studio — Native Desktop Application (Tauri + React + Rust)",
+  "scripts": {
+    "dev": "npm --prefix animforge-desktop run dev",
+    "tauri": "npm --prefix animforge-desktop run tauri",
+    "build": "npm --prefix animforge-desktop run build:app",
+    "build:app": "npm --prefix animforge-desktop run build:app",
+    "build:dmg": "npm --prefix animforge-desktop run build:dmg",
+    "test": "npm --prefix animforge-core test && npm --prefix animforge-desktop test",
+    "typecheck": "npm --prefix animforge-core run typecheck && npm --prefix animforge-desktop run typecheck"
+  }
+}

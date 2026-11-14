@@ -1,4 +1,4 @@
-# AnimForge AI — Human-Language-to-Animated-Video Production System
+qq# AnimForge AI — Human-Language-to-Animated-Video Production System
 
 AnimForge AI turns natural-language story ideas into finished animated MP4 videos using an AI-orchestrated multi-engine pipeline. Rather than rebuilding animation engines from scratch, AnimForge integrates three specialized open-source engines via a decoupled adapter architecture:
 

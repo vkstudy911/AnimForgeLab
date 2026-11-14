@@ -1,22 +1,44 @@
-// @ts-ignore
+// @ts-expect-error node:sqlite built-in module is missing from @types/node 20.x
 import { DatabaseSync } from 'node:sqlite';
 import * as path from 'node:path';
 import * as fs from 'node:fs';
-import { Project, RenderJob } from '../schemas/index.js';
+import {
+  DiskManifestSchema,
+  Project,
+  ProjectSchema,
+  RenderJob,
+  RenderJobSchema,
+} from '../schemas/index.js';
 
-// Type shim for built-in node:sqlite in Node >=22
+type SqlParam = string | number | null;
+
+export interface ProjectSummary {
+  id: string;
+  name: string;
+  prompt: string;
+  status: Project['status'];
+  preferredEngine?: Project['preferredEngine'];
+  width: number;
+  height: number;
+  fps: number;
+  updatedAt: string;
+  hasBundle?: boolean;
+  hasVideo?: boolean;
+}
+
 type SqliteDatabase = {
   exec(sql: string): void;
   prepare(sql: string): {
-    run(...args: any[]): void;
-    get(...args: any[]): any;
-    all(...args: any[]): any[];
+    run(...args: SqlParam[]): { changes?: number | bigint };
+    get(...args: SqlParam[]): Record<string, unknown> | undefined;
+    all(...args: SqlParam[]): Record<string, unknown>[];
   };
   close(): void;
 };
 
 export class AnimForgeDatabase {
   private db: SqliteDatabase;
+  private closed = false;
 
   constructor(dbPath?: string) {
     const resolvedPath = dbPath || ':memory:';
@@ -26,7 +48,7 @@ export class AnimForgeDatabase {
         fs.mkdirSync(dir, { recursive: true });
       }
     }
-    this.db = new DatabaseSync(resolvedPath);
+    this.db = new DatabaseSync(resolvedPath) as SqliteDatabase;
     this.initSchema();
   }
 
@@ -56,6 +78,7 @@ export class AnimForgeDatabase {
   }
 
   saveProject(project: Project): void {
+    const valid = ProjectSchema.parse(project);
     const stmt = this.db.prepare(`
       INSERT INTO projects (id, name, prompt, data, created_at, updated_at)
       VALUES (?, ?, ?, ?, ?, ?)
@@ -66,23 +89,135 @@ export class AnimForgeDatabase {
         updated_at = excluded.updated_at
     `);
     stmt.run(
-      project.id,
-      project.name,
-      project.prompt,
-      JSON.stringify(project),
-      project.createdAt,
-      project.updatedAt
+      valid.id,
+      valid.name,
+      valid.prompt,
+      JSON.stringify(valid),
+      valid.createdAt,
+      valid.updatedAt
     );
+  }
+
+  reconcileDiskProjects(projectsRoot: string): void {
+    if (!fs.existsSync(projectsRoot)) return;
+    try {
+      const entries = fs.readdirSync(projectsRoot, { withFileTypes: true });
+      for (const entry of entries) {
+        if (!entry.isDirectory()) continue;
+        const projectId = entry.name;
+        if (projectId.startsWith('.')) continue;
+        const manifestPath = path.join(projectsRoot, projectId, 'project.animforge.json');
+        if (!fs.existsSync(manifestPath)) continue;
+
+        try {
+          const stat = fs.statSync(manifestPath);
+          const stmt = this.db.prepare('SELECT updated_at FROM projects WHERE id = ?');
+          const row = stmt.get(projectId) as { updated_at: string } | undefined;
+          if (row && row.updated_at) {
+            const dbTime = new Date(row.updated_at).getTime();
+            if (stat.mtimeMs <= dbTime + 500) {
+              continue;
+            }
+          }
+
+          const rawText = fs.readFileSync(manifestPath, 'utf-8');
+          const manifest = DiskManifestSchema.parse(JSON.parse(rawText));
+          for (const scene of manifest.scenes) {
+            if (scene.projectId !== projectId) {
+              throw new Error(`scene ${scene.id} projectId mismatch`);
+            }
+          }
+          const project: Project = {
+            id: projectId,
+            name: manifest.config.name,
+            prompt: manifest.config.prompt,
+            width: manifest.config.width,
+            height: manifest.config.height,
+            fps: manifest.config.fps,
+            preferredEngine: manifest.config.preferredEngine,
+            status: manifest.status ?? (manifest.scenes.length > 0 ? 'scenes_planned' : 'created'),
+            ...(manifest.storyboard ? { storyboard: manifest.storyboard } : {}),
+            characters: manifest.characters,
+            assets: manifest.assets,
+            scenes: manifest.scenes,
+            createdAt: stat.birthtimeMs > 0 ? stat.birthtime.toISOString() : stat.mtime.toISOString(),
+            updatedAt: manifest.updatedAt ?? stat.mtime.toISOString(),
+          };
+          this.saveProject(project);
+        } catch {
+          continue;
+        }
+      }
+    } catch {
+      // Ignore directory access error
+    }
   }
 
   getProject(id: string): Project | null {
     const stmt = this.db.prepare('SELECT data FROM projects WHERE id = ?');
-    const row = stmt.get(id) as { data: string } | undefined;
-    if (!row) return null;
-    return JSON.parse(row.data) as Project;
+    const row = stmt.get(id);
+    if (!row || typeof row.data !== 'string') return null;
+    return ProjectSchema.parse(JSON.parse(row.data));
+  }
+
+  listProjects(projectsRoot?: string): ProjectSummary[] {
+    if (projectsRoot) {
+      this.reconcileDiskProjects(projectsRoot);
+    }
+    const stmt = this.db.prepare('SELECT data FROM projects ORDER BY updated_at DESC');
+    const rows = stmt.all();
+    const summaries: ProjectSummary[] = [];
+    for (const row of rows) {
+      if (typeof row.data !== 'string') continue;
+      try {
+        const p = ProjectSchema.parse(JSON.parse(row.data));
+        const pDir = projectsRoot ? path.join(projectsRoot, p.id) : null;
+        const hasBundle = pDir ? fs.existsSync(path.join(pDir, 'bundle', 'index.html')) : undefined;
+        const hasVideo = pDir ? fs.existsSync(path.join(pDir, 'output.mp4')) : undefined;
+        summaries.push({
+          id: p.id,
+          name: p.name,
+          prompt: p.prompt,
+          status: p.status,
+          preferredEngine: p.preferredEngine,
+          width: p.width,
+          height: p.height,
+          fps: p.fps,
+          updatedAt: p.updatedAt,
+          ...(hasBundle !== undefined ? { hasBundle } : {}),
+          ...(hasVideo !== undefined ? { hasVideo } : {}),
+        });
+      } catch {
+        continue;
+      }
+    }
+    return summaries;
+  }
+
+  hasProjectRow(id: string): boolean {
+    const row = this.db.prepare('SELECT 1 AS found FROM projects WHERE id = ? LIMIT 1').get(id);
+    return Boolean(row?.found);
+  }
+
+  deleteProject(id: string): boolean {
+    this.db.exec('BEGIN');
+    try {
+      this.db.prepare('DELETE FROM render_jobs WHERE project_id = ?').run(id);
+      const res = this.db.prepare('DELETE FROM projects WHERE id = ?').run(id);
+      this.db.exec('COMMIT');
+      return Number(res?.changes ?? 0) > 0;
+    } catch (err) {
+      try {
+        this.db.exec('ROLLBACK');
+      } catch {
+        // Ignore rollback errors if SQLite already rolled back the active transaction
+      }
+      throw err;
+    }
   }
 
   saveRenderJob(job: RenderJob): void {
+    const valid = RenderJobSchema.parse(job);
     const stmt = this.db.prepare(`
       INSERT INTO render_jobs (id, project_id, engine, status, progress, output_path, error, started_at, finished_at)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
@@ -94,36 +229,67 @@ export class AnimForgeDatabase {
         finished_at = excluded.finished_at
     `);
     stmt.run(
-      job.id,
-      job.projectId,
-      job.engine,
-      job.status,
-      job.progress,
-      job.outputFilePath || null,
-      job.error || null,
-      job.startedAt,
-      job.finishedAt || null
+      valid.id,
+      valid.projectId,
+      valid.engine,
+      valid.status,
+      valid.progress,
+      valid.outputFilePath ?? null,
+      valid.error ?? null,
+      valid.startedAt,
+      valid.finishedAt ?? null
     );
   }
 
   getRenderJob(id: string): RenderJob | null {
     const stmt = this.db.prepare('SELECT * FROM render_jobs WHERE id = ?');
-    const row = stmt.get(id) as any;
+    const row = stmt.get(id);
     if (!row) return null;
-    return {
+    return RenderJobSchema.parse({
       id: row.id,
       projectId: row.project_id,
       engine: row.engine,
       status: row.status,
       progress: row.progress,
-      outputFilePath: row.output_path || undefined,
-      error: row.error || undefined,
+      outputFilePath: row.output_path ?? undefined,
+      error: row.error ?? undefined,
       startedAt: row.started_at,
-      finishedAt: row.finished_at || undefined,
-    };
+      finishedAt: row.finished_at ?? undefined,
+    });
+  }
+
+  listRenderJobs(projectId?: string): RenderJob[] {
+    const rows = projectId
+      ? this.db
+          .prepare('SELECT * FROM render_jobs WHERE project_id = ? ORDER BY started_at DESC')
+          .all(projectId)
+      : this.db.prepare('SELECT * FROM render_jobs ORDER BY started_at DESC').all();
+    const jobs: RenderJob[] = [];
+    for (const row of rows) {
+      try {
+        jobs.push(
+          RenderJobSchema.parse({
+            id: row.id,
+            projectId: row.project_id,
+            engine: row.engine,
+            status: row.status,
+            progress: row.progress,
+            outputFilePath: row.output_path ?? undefined,
+            error: row.error ?? undefined,
+            startedAt: row.started_at,
+            finishedAt: row.finished_at ?? undefined,
+          })
+        );
+      } catch {
+        continue;
+      }
+    }
+    return jobs;
   }
 
   close(): void {
+    if (this.closed) return;
+    this.closed = true;
     this.db.close();
   }
 }

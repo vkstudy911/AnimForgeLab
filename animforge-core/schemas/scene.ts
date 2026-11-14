@@ -23,6 +23,7 @@ export const AnimationTimelineSchema = z.object({
     startTime: z.number().nonnegative(),
     volume: z.number().min(0).max(1).default(1),
     loop: z.boolean().default(false),
+    muted: z.boolean().optional(),
   })).default([]),
 });
 
